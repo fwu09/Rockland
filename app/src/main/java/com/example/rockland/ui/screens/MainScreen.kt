@@ -28,6 +28,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.rockland.R
 import com.example.rockland.firebase.UserData
+import com.example.rockland.viewmodel.MapViewModel
 import com.example.rockland.viewmodel.UserViewModel
 
 // Main screen with bottom navigation
@@ -96,7 +97,11 @@ fun MainScreenContent(
         ) {
             when (selectedTab) {
                 0 -> HomeScreen()
-                1 -> PlaceholderScreen("Map Screen")
+                1 -> MapScreen(
+                    viewModel = MapViewModel(),
+                    onInfoDetailsClick = { /* TODO: future info flow */ },
+                    onAddCommentClick = { /* TODO: add comment flow */ }
+                )
                 2 -> PlaceholderScreen("Collection Screen")
                 3 -> {
                     ProfileScreen(
