@@ -53,13 +53,13 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import com.example.rockland.data.model.RockLocation
+import com.example.rockland.data.repository.RockLocationRepository
 import com.example.rockland.ui.theme.BackgroundLight
 import com.example.rockland.ui.theme.Rock1
 import com.example.rockland.ui.theme.Rock3
 import com.example.rockland.ui.theme.TextDark
 import com.example.rockland.viewmodel.MapViewModel
-import com.example.rockland.viewmodel.RockLocation
-import com.example.rockland.viewmodel.RockLocationRepository
 import com.google.android.gms.maps.CameraUpdateFactory
 import com.google.android.gms.maps.model.LatLng
 import com.google.maps.android.compose.GoogleMap
