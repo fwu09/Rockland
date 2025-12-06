@@ -2,6 +2,8 @@ package com.example.rockland.viewmodel
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.rockland.data.model.RockLocation
+import com.example.rockland.data.repository.RockLocationRepository
 import com.google.android.gms.maps.model.LatLng
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -74,7 +76,7 @@ class MapViewModel(
                 _userLocation.value = coordinates
                 _locationError.value = null
                 selectNearest(coordinates)
-                _recenterRequests.value = _recenterRequests.value + 1
+                _recenterRequests.value += 1
             } else {
                 _locationError.value =
                     "No rock distribution data found in this area. Be the first to log a discovery!."

@@ -27,7 +27,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.rockland.R
-import com.example.rockland.firebase.UserData
+import com.example.rockland.data.datasource.remote.UserData
 import com.example.rockland.viewmodel.MapViewModel
 import com.example.rockland.viewmodel.UserViewModel
 
