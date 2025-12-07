@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "30413893553",
+    "project_id": "rock-discovery-e488b",
+    "storage_bucket": "rock-discovery-e488b.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:30413893553:android:9d7cbfca4e6373a7b5d790",
+        "android_client_info": {
+          "package_name": "com.example.rockland"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAbaO1UBToGXJkxwwxursQEmxgDHrVzpGo"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
