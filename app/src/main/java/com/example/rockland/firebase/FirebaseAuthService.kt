@@ -5,9 +5,7 @@ import com.google.firebase.auth.FirebaseUser
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlin.coroutines.resume
-import kotlin.coroutines.resumeWithException
-import kotlin.coroutines.suspendCoroutine
+import kotlinx.coroutines.tasks.await
 
 class FirebaseAuthService {
     private val auth = FirebaseAuth.getInstance()
@@ -30,32 +28,34 @@ class FirebaseAuthService {
 
     // Register a new user with email and password
     suspend fun registerUser(email: String, password: String): FirebaseUser? {
-        return suspendCoroutine { continuation ->
-            auth.createUserWithEmailAndPassword(email, password)
-                .addOnSuccessListener { authResult ->
-                    continuation.resume(authResult.user)
-                }
-                .addOnFailureListener { exception ->
-                    continuation.resumeWithException(exception)
-                }
+        return try {
+            android.util.Log.d("FirebaseAuthService", "Starting registration for: $email")
+            val result = auth.createUserWithEmailAndPassword(email, password).await()
+            android.util.Log.d(
+                "FirebaseAuthService",
+                "Registration successful, uid: ${result.user?.uid}"
+            )
+            result.user
+        } catch (e: Exception) {
+            android.util.Log.e("FirebaseAuthService", "Registration failed for: $email", e)
+            throw e
         }
     }
 
     // Login with email and password
     suspend fun loginUser(email: String, password: String): FirebaseUser? {
-        return suspendCoroutine { continuation ->
-            auth.signInWithEmailAndPassword(email, password)
-                .addOnSuccessListener { authResult ->
-                    continuation.resume(authResult.user)
-                }
-                .addOnFailureListener { exception ->
-                    continuation.resumeWithException(exception)
-                }
+        return try {
+            android.util.Log.d("FirebaseAuthService", "Starting login for: $email")
+            val result = auth.signInWithEmailAndPassword(email, password).await()
+            android.util.Log.d("FirebaseAuthService", "Login successful, uid: ${result.user?.uid}")
+            result.user
+        } catch (e: Exception) {
+            android.util.Log.e("FirebaseAuthService", "Login failed for: $email", e)
+            throw e
         }
     }
 
     // Logout the current user
-
     fun logout() {
         auth.signOut()
     }
@@ -63,7 +63,6 @@ class FirebaseAuthService {
     companion object {
         private var instance: FirebaseAuthService? = null
 
-        // Get the singleton instance of FirebaseAuthService
         fun getInstance(): FirebaseAuthService {
             if (instance == null) {
                 instance = FirebaseAuthService()

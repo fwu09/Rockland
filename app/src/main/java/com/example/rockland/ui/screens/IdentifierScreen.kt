@@ -10,8 +10,10 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -52,14 +54,16 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.rockland.R
 import com.example.rockland.ui.theme.BackgroundLight
 import com.example.rockland.ui.theme.Rock1
 import com.example.rockland.ui.theme.Rock3
 import com.example.rockland.ui.theme.TextDark
+import com.example.rockland.viewmodel.CollectionViewModel
 import kotlinx.coroutines.delay
 
-// UI State Definition
+// UI state for the identifier flow.
 sealed interface ScanUiState {
     object Idle : ScanUiState
     data class Loading(val imageUri: Uri) : ScanUiState
@@ -67,19 +71,17 @@ sealed interface ScanUiState {
     data class Error(val message: String) : ScanUiState
 }
 
+// Entry point for the identify-rock feature.
 @Composable
-fun HomeScreen() {
+fun IdentifierScreen() {
     var uiState by remember { mutableStateOf<ScanUiState>(ScanUiState.Idle) }
 
-    // Mock Logic: Simulate network request when state becomes Loading
+    // TODO: Backend - Replace with ML rock identification API (POST /api/identify-rock)
     LaunchedEffect(uiState) {
         if (uiState is ScanUiState.Loading) {
             val loadingState = uiState as ScanUiState.Loading
-            // Simulate network delay
             delay(2000)
-
-            // TODO: Mock Data - Randomly succeed or fail for demonstration
-            if (Math.random() > 0.2) { // 80% success rate
+            if (Math.random() > 0.2) {
                 uiState = ScanUiState.Success(loadingState.imageUri)
             } else {
                 uiState = ScanUiState.Error("Failed to identify rock. Please try again.")
@@ -89,7 +91,7 @@ fun HomeScreen() {
 
     when (val state = uiState) {
         is ScanUiState.Idle -> {
-            RockIdentifyHome(
+            IdentifierHome(
                 onImageSelected = { uri ->
                     uiState = ScanUiState.Loading(uri)
                 }
@@ -97,12 +99,14 @@ fun HomeScreen() {
         }
 
         is ScanUiState.Loading -> {
-            LoadingScreen()
+            IdentifierLoadingScreen()
         }
 
         is ScanUiState.Success -> {
-            RockInfoScreen(
+            IdentifierResultScreen(
                 imageUri = state.imageUri,
+                rockId = "mock-rock-id",      // TODO: replace with real rock id from backend
+                rockName = "AMETHYST",        // TODO: replace with detected rock name from backend
                 onScanAgain = {
                     uiState = ScanUiState.Idle
                 }
@@ -110,7 +114,7 @@ fun HomeScreen() {
         }
 
         is ScanUiState.Error -> {
-            ErrorScreen(
+            IdentifierErrorScreen(
                 message = state.message,
                 onRetry = {
                     uiState = ScanUiState.Idle
@@ -122,21 +126,19 @@ fun HomeScreen() {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun RockIdentifyHome(onImageSelected: (Uri) -> Unit) {
+fun IdentifierHome(onImageSelected: (Uri) -> Unit) {
     val context = LocalContext.current
 
-    // Gallery Launcher
     val galleryLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia()
     ) { uri: Uri? ->
         uri?.let { onImageSelected(it) }
     }
 
-    // Camera Launcher
     val cameraLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.TakePicturePreview()
-    ) { bitmap ->
-        // TODO: Backend Integration - Save bitmap to Uri and pass to onImageSelected
+    ) { _ ->
+        // TODO(Backend, IdentifierScreen.kt): Save bitmap to file/Uri and call onImageSelected.
     }
 
     Column(
@@ -146,7 +148,6 @@ fun RockIdentifyHome(onImageSelected: (Uri) -> Unit) {
             .padding(16.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-
         Text(
             text = "RockLand Scanner",
             fontSize = 20.sp,
@@ -155,7 +156,6 @@ fun RockIdentifyHome(onImageSelected: (Uri) -> Unit) {
             modifier = Modifier.padding(bottom = 16.dp, top = 8.dp)
         )
 
-        // Camera Preview Box
         Box(
             modifier = Modifier
                 .weight(1f)
@@ -163,7 +163,6 @@ fun RockIdentifyHome(onImageSelected: (Uri) -> Unit) {
                 .clip(RoundedCornerShape(32.dp))
                 .background(Rock3)
         ) {
-            // Camera Preview
             Image(
                 painter = painterResource(id = R.drawable.ic_launcher_foreground),
                 contentDescription = "Camera Preview",
@@ -174,7 +173,6 @@ fun RockIdentifyHome(onImageSelected: (Uri) -> Unit) {
                 contentScale = ContentScale.Fit
             )
 
-            // Scan Button
             Column(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
@@ -189,7 +187,6 @@ fun RockIdentifyHome(onImageSelected: (Uri) -> Unit) {
                     modifier = Modifier.padding(bottom = 16.dp)
                 )
 
-                // Circular Scan Button
                 Button(
                     onClick = { cameraLauncher.launch(null) },
                     modifier = Modifier.size(80.dp),
@@ -210,7 +207,6 @@ fun RockIdentifyHome(onImageSelected: (Uri) -> Unit) {
 
         Spacer(modifier = Modifier.height(24.dp))
 
-        // Bottom Section: Upload from Gallery Button
         OutlinedButton(
             onClick = {
                 galleryLauncher.launch(
@@ -236,13 +232,12 @@ fun RockIdentifyHome(onImageSelected: (Uri) -> Unit) {
             )
         }
 
-        // Extra bottom padding for safety
         Spacer(modifier = Modifier.height(8.dp))
     }
 }
 
 @Composable
-fun LoadingScreen() {
+fun IdentifierLoadingScreen() {
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -265,7 +260,7 @@ fun LoadingScreen() {
 }
 
 @Composable
-fun ErrorScreen(message: String, onRetry: () -> Unit) {
+fun IdentifierErrorScreen(message: String, onRetry: () -> Unit) {
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -305,8 +300,15 @@ fun ErrorScreen(message: String, onRetry: () -> Unit) {
     }
 }
 
+// Result screen shown after a rock has been identified.
 @Composable
-fun RockInfoScreen(imageUri: Uri, onScanAgain: () -> Unit) {
+fun IdentifierResultScreen(
+    imageUri: Uri,
+    rockId: String,
+    rockName: String,
+    onScanAgain: () -> Unit,
+    collectionViewModel: CollectionViewModel = viewModel()
+) {
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -315,7 +317,6 @@ fun RockInfoScreen(imageUri: Uri, onScanAgain: () -> Unit) {
             .verticalScroll(rememberScrollState()),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        // Header
         Text(
             text = "RockLand Scanner",
             fontSize = 20.sp,
@@ -324,7 +325,6 @@ fun RockInfoScreen(imageUri: Uri, onScanAgain: () -> Unit) {
             modifier = Modifier.padding(bottom = 16.dp, top = 8.dp)
         )
 
-        // Scanned Image Section
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -333,8 +333,6 @@ fun RockInfoScreen(imageUri: Uri, onScanAgain: () -> Unit) {
                 .background(Rock3),
             contentAlignment = Alignment.Center
         ) {
-            // TODO: Mock Data - Replace placeholder with actual image loading logic
-            // AsyncImage(model = imageUri, ...)
             Image(
                 painter = painterResource(id = R.drawable.ic_launcher_foreground),
                 contentDescription = "Scanned Rock",
@@ -348,14 +346,12 @@ fun RockInfoScreen(imageUri: Uri, onScanAgain: () -> Unit) {
 
         Spacer(modifier = Modifier.height(24.dp))
 
-        // Rock Info Section
         Column(
             modifier = Modifier.fillMaxWidth(),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            // TODO: Mock Data - Replace hardcoded text with backend response
             Text(
-                text = "AMETHYST",
+                text = rockName,
                 fontSize = 32.sp,
                 fontWeight = FontWeight.Bold,
                 color = TextDark,
@@ -369,7 +365,6 @@ fun RockInfoScreen(imageUri: Uri, onScanAgain: () -> Unit) {
                 modifier = Modifier.padding(bottom = 24.dp)
             )
 
-            // Description Card
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(24.dp),
@@ -384,9 +379,8 @@ fun RockInfoScreen(imageUri: Uri, onScanAgain: () -> Unit) {
                         color = TextDark
                     )
                     Spacer(modifier = Modifier.height(12.dp))
-                    // TODO: Mock Data - Replace with dynamic description from API
                     Text(
-                        text = "This is a violet variety of quartz. The name comes from the Koine Greek αμέθυστος amethystos from α- a-, 'not' and μεθύσκω (Ancient Greek) methysko, 'intoxicate', a reference to the belief that the stone protected its owner from drunkenness.",
+                        text = "This is a violet variety of quartz...", // shortened placeholder
                         fontSize = 16.sp,
                         color = TextDark.copy(alpha = 0.8f),
                         lineHeight = 24.sp
@@ -398,20 +392,46 @@ fun RockInfoScreen(imageUri: Uri, onScanAgain: () -> Unit) {
         Spacer(modifier = Modifier.weight(1f))
         Spacer(modifier = Modifier.height(24.dp))
 
-        // Scan Again Button
-        Button(
-            onClick = onScanAgain,
+        Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(56.dp),
-            shape = RoundedCornerShape(28.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = Rock1)
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Text(
-                text = "Scan Again",
-                fontSize = 16.sp,
-                fontWeight = FontWeight.Bold
-            )
+            Button(
+                onClick = {
+                    collectionViewModel.addRockFromIdentification(
+                        rockId = rockId,
+                        rockName = rockName
+                    )
+                },
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxHeight(),
+                shape = RoundedCornerShape(28.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = Rock1.copy(alpha = 0.9f))
+            ) {
+                Text(
+                    text = "Add to Collection",
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+
+            Button(
+                onClick = onScanAgain,
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxHeight(),
+                shape = RoundedCornerShape(28.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = Rock1)
+            ) {
+                Text(
+                    text = "Scan Again",
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
         }
 
         Spacer(modifier = Modifier.height(8.dp))
@@ -420,27 +440,17 @@ fun RockInfoScreen(imageUri: Uri, onScanAgain: () -> Unit) {
 
 @Preview(showBackground = true)
 @Composable
-fun HomeScreenPreview() {
-    HomeScreen()
+fun IdentifierScreenPreview() {
+    IdentifierScreen()
 }
 
 @Preview(showBackground = true, name = "Result Screen")
 @Composable
-fun RockInfoScreenPreview() {
-    RockInfoScreen(
+fun IdentifierResultPreview() {
+    IdentifierResultScreen(
         imageUri = Uri.EMPTY,
+        rockId = "preview-id",
+        rockName = "AMETHYST",
         onScanAgain = {}
     )
-}
-
-@Preview(showBackground = true, name = "Loading Screen")
-@Composable
-fun LoadingScreenPreview() {
-    LoadingScreen()
-}
-
-@Preview(showBackground = true, name = "Error Screen")
-@Composable
-fun ErrorScreenPreview() {
-    ErrorScreen(message = "Network connection failed", onRetry = {})
 }

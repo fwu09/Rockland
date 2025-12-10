@@ -26,6 +26,7 @@ import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -50,16 +51,39 @@ import com.example.rockland.ui.theme.Rock3
 import com.example.rockland.ui.theme.RocklandTheme
 import com.example.rockland.ui.theme.TextDark
 
+// Email validation helper function
+private fun isValidEmail(email: String): Boolean {
+    return android.util.Patterns.EMAIL_ADDRESS.matcher(email).matches()
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LoginScreen(
+    isLoading: Boolean = false,
+    errorMessage: String? = null,
     onBackClick: () -> Unit = {},
     onLoginClick: (email: String, password: String) -> Unit = { _, _ -> },
-    onRegisterClick: () -> Unit = {}
+    onRegisterClick: () -> Unit = {},
+    onClearError: () -> Unit = {}
 ) {
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var passwordVisible by remember { mutableStateOf(false) }
+    var emailTouched by remember { mutableStateOf(false) }
+
+    // Email validation
+    val isEmailValid = email.isEmpty() || isValidEmail(email)
+    val showEmailError = emailTouched && email.isNotEmpty() && !isEmailValid
+
+    // Form validation
+    val isFormValid = email.isNotBlank() && isEmailValid && password.isNotBlank()
+
+    // Clear error when user starts typing
+    LaunchedEffect(email, password) {
+        if (errorMessage != null) {
+            onClearError()
+        }
+    }
 
     val backgroundGradient = Brush.verticalGradient(
         colors = listOf(BackgroundLight, BackgroundLight)
@@ -99,13 +123,52 @@ fun LoginScreen(
                 textAlign = TextAlign.Center
             )
 
-            Spacer(modifier = Modifier.height(48.dp))
+            Spacer(modifier = Modifier.height(24.dp))
+
+            // Error message display with retry hint
+            if (errorMessage != null) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Text(
+                        text = errorMessage,
+                        color = androidx.compose.ui.graphics.Color.Red,
+                        fontSize = 14.sp,
+                        textAlign = TextAlign.Center,
+                        fontWeight = FontWeight.Medium
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "Please check your credentials and try again",
+                        color = androidx.compose.ui.graphics.Color.Red.copy(alpha = 0.7f),
+                        fontSize = 12.sp,
+                        textAlign = TextAlign.Center
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(24.dp))
 
             OutlinedTextField(
                 value = email,
-                onValueChange = { email = it },
+                onValueChange = {
+                    email = it
+                    emailTouched = true
+                },
                 label = { Text(stringResource(R.string.email)) },
                 singleLine = true,
+                isError = showEmailError,
+                supportingText = {
+                    if (showEmailError) {
+                        Text(
+                            text = "Please enter a valid email address",
+                            color = androidx.compose.ui.graphics.Color.Red
+                        )
+                    }
+                },
                 keyboardOptions = KeyboardOptions(
                     keyboardType = KeyboardType.Email,
                     imeAction = ImeAction.Next
@@ -114,10 +177,14 @@ fun LoginScreen(
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp),
                 colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = Rock1,
-                    unfocusedBorderColor = TextDark.copy(alpha = 0.5f),
-                    focusedLabelColor = Rock1,
-                    unfocusedLabelColor = TextDark.copy(alpha = 0.5f),
+                    focusedBorderColor = if (showEmailError) androidx.compose.ui.graphics.Color.Red else Rock1,
+                    unfocusedBorderColor = if (showEmailError) androidx.compose.ui.graphics.Color.Red else TextDark.copy(
+                        alpha = 0.5f
+                    ),
+                    focusedLabelColor = if (showEmailError) androidx.compose.ui.graphics.Color.Red else Rock1,
+                    unfocusedLabelColor = if (showEmailError) androidx.compose.ui.graphics.Color.Red else TextDark.copy(
+                        alpha = 0.5f
+                    ),
                     cursorColor = Rock1
                 )
             )
@@ -157,7 +224,16 @@ fun LoginScreen(
             Spacer(modifier = Modifier.height(24.dp))
 
             Button(
-                onClick = { onLoginClick(email, password) },
+                onClick = {
+                    // Mark email as touched to show validation errors
+                    emailTouched = true
+
+                    // Client-side validation before sending to server
+                    if (email.isNotBlank() && isValidEmail(email) && password.isNotBlank()) {
+                        onLoginClick(email.trim(), password)
+                    }
+                },
+                enabled = !isLoading && isFormValid,
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(50.dp)
@@ -169,7 +245,7 @@ fun LoginScreen(
                 )
             ) {
                 Text(
-                    text = stringResource(R.string.login),
+                    text = if (isLoading) "Logging in..." else stringResource(R.string.login),
                     fontSize = 16.sp,
                     fontWeight = FontWeight.Medium
                 )

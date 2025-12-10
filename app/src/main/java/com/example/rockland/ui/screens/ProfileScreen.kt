@@ -22,6 +22,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.EmojiEvents
 import androidx.compose.material.icons.filled.Explore
 import androidx.compose.material.icons.filled.Landscape
@@ -64,7 +65,8 @@ import com.example.rockland.ui.theme.TextLight
 fun ProfileScreen(
     userData: UserData? = null,
     onSettingsClick: () -> Unit = {},
-    onLogoutClick: () -> Unit = {}
+    onLogoutClick: () -> Unit = {},
+    onBackClick: () -> Unit = {}
 ) {
     // Calculate level based on experience points
     val level = calculateLevel(userData?.experience ?: 0)
@@ -78,26 +80,30 @@ fun ProfileScreen(
             .background(Color(0xFFF5F5F5))
             .verticalScroll(rememberScrollState())
     ) {
-        // Top bar with welcome message and settings button
-        Box(
+        // Top bar with back button, title and settings button
+        Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 8.dp)
+                .padding(horizontal = 8.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            Column(
-                modifier = Modifier.align(Alignment.CenterStart)
-            ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = onBackClick) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                        contentDescription = "Back"
+                    )
+                }
                 Text(
-                    text = "Welcome back to your profile",
-                    fontSize = 16.sp,
-                    color = TextDark.copy(alpha = 0.7f)
+                    text = "Profile",
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = TextDark
                 )
             }
 
-            IconButton(
-                onClick = onSettingsClick,
-                modifier = Modifier.align(Alignment.CenterEnd)
-            ) {
+            IconButton(onClick = onSettingsClick) {
                 Icon(
                     imageVector = Icons.Default.Settings,
                     contentDescription = stringResource(R.string.settings),
