@@ -72,6 +72,7 @@ import com.google.maps.android.compose.rememberCameraPositionState
 private val RockLocation.coordinates: LatLng
     get() = LatLng(latitude, longitude)
 
+// TODO: Backend - Replace mock rock locations with real API (GET /api/rock-locations)
 @Composable
 fun MapScreen(
     viewModel: MapViewModel = MapViewModel(RockLocationRepository()),
@@ -352,7 +353,7 @@ fun MapScreen(
                                     text = "Rock Info",
                                     color = TextDark,
                                     style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.SemiBold
+                                    fontWeight = FontWeight.Medium
                                 )
                                 Text(
                                     text = selectedLocation?.name ?: "Unknown rock",

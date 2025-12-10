@@ -44,29 +44,65 @@ class UserViewModel(
         viewModelScope.launch {
             authService.currentUser.collect { user ->
                 if (user != null) {
-                    loadUserData(user.uid)
+                    android.util.Log.d(
+                        "UserViewModel",
+                        "Auth state changed: User logged in (${user.uid})"
+                    )
+                    // Only load user data if we don't have it already
+                    if (_userData.value == null || _userData.value?.userId != user.uid) {
+                        try {
+                            val userData = userService.getUserProfile(user.uid)
+                            _userData.value = userData
+                            android.util.Log.d(
+                                "UserViewModel",
+                                "User data loaded in init: $userData"
+                            )
+                        } catch (e: Exception) {
+                            android.util.Log.e(
+                                "UserViewModel",
+                                "Error loading user data in init",
+                                e
+                            )
+                        }
+                    }
                 } else {
+                    android.util.Log.d("UserViewModel", "Auth state changed: User logged out")
                     _userData.value = null
                 }
             }
         }
     }
 
-    // Register a new user
+    // TODO: CRITICAL - Firebase authentication currently failing, needs App Check configuration
+    // Register a new user - Firebase will automatically log in the user
     fun registerUser(email: String, password: String, firstName: String, lastName: String) {
         viewModelScope.launch {
             try {
                 _isLoading.value = true
                 _error.value = null
 
+                android.util.Log.d("UserViewModel", "Starting registration for: $email")
+
+                // Create Firebase Auth user
                 val user = authService.registerUser(email, password)
+
                 if (user != null) {
+                    android.util.Log.d("UserViewModel", "Auth user created, uid: ${user.uid}")
+
+                    // Create Firestore user profile
                     userService.createUserProfile(user, firstName, lastName)
-                    loadUserData(user.uid)
-                    _successMessage.value = "Registration successful! Welcome to Rockland."
+                    android.util.Log.d("UserViewModel", "Firestore profile created")
+
+                    // The auth state listener in init{} will automatically load user data
+                    _successMessage.value = "Registration successful!"
+                    android.util.Log.d("UserViewModel", "Registration completed successfully")
+                } else {
+                    _error.value = "Registration failed: User creation returned null"
+                    android.util.Log.e("UserViewModel", "Registration failed: user is null")
                 }
             } catch (e: Exception) {
-                _error.value = e.message
+                _error.value = e.message ?: "Registration failed"
+                android.util.Log.e("UserViewModel", "Registration error: ${e.message}", e)
             } finally {
                 _isLoading.value = false
             }
@@ -80,9 +116,19 @@ class UserViewModel(
                 _isLoading.value = true
                 _error.value = null
 
-                authService.loginUser(email, password)
+                android.util.Log.d("UserViewModel", "Attempting login for: $email")
+                val user = authService.loginUser(email, password)
+
+                if (user != null) {
+                    android.util.Log.d("UserViewModel", "Login successful, uid: ${user.uid}")
+                    // The auth state listener in init{} will automatically load user data
+                } else {
+                    _error.value = "Login failed: User returned null"
+                    android.util.Log.e("UserViewModel", "Login failed: User returned null")
+                }
             } catch (e: Exception) {
-                _error.value = e.message
+                _error.value = e.message ?: "Login failed"
+                android.util.Log.e("UserViewModel", "Login error: ${e.message}", e)
             } finally {
                 _isLoading.value = false
             }

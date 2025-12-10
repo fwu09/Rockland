@@ -8,6 +8,8 @@ import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import com.example.rockland.navigation.AppNavigation
 import com.example.rockland.ui.theme.RocklandTheme
 import com.google.firebase.FirebaseApp
+import com.google.firebase.appcheck.FirebaseAppCheck
+import com.google.firebase.appcheck.debug.DebugAppCheckProviderFactory
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -18,7 +20,16 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
+        // Initialize Firebase
         FirebaseApp.initializeApp(this)
+
+        // Initialize Firebase App Check (CRITICAL for Firebase Auth/Firestore to work)
+        val firebaseAppCheck = FirebaseAppCheck.getInstance()
+        firebaseAppCheck.installAppCheckProviderFactory(
+            DebugAppCheckProviderFactory.getInstance()
+        )
+
+        android.util.Log.d("MainActivity", "Firebase App Check initialized with Debug provider")
 
         setContent {
             RocklandTheme {
