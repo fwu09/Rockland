@@ -21,7 +21,7 @@ data class UserData(
     val badges: List<String> = listOf()
 )
 
-// firebase user service
+// Firebase user service (Firestore).
 class FirebaseUserService {
     private val db = FirebaseFirestore.getInstance()
     private val usersCollection = db.collection("users")
@@ -95,3 +95,5 @@ class FirebaseUserService {
         }
     }
 }
+
+

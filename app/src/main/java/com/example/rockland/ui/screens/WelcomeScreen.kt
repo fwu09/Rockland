@@ -35,8 +35,7 @@ import com.example.rockland.ui.theme.TextLight
 @Composable
 fun WelcomeScreen(
     onSignInClick: () -> Unit = {},
-    onSignUpClick: () -> Unit = {},
-    onSkipClick: () -> Unit = {}
+    onSignUpClick: () -> Unit = {}
 ) {
     val backgroundGradient = Brush.verticalGradient(
         colors = listOf(BackgroundLight, BackgroundLight)
@@ -107,16 +106,6 @@ fun WelcomeScreen(
                     )
                 }
 
-                TextButton(
-                    onClick = onSkipClick,
-                    modifier = Modifier.padding(top = 8.dp)
-                ) {
-                    Text(
-                        text = stringResource(R.string.skip_login),
-                        color = TextDark.copy(alpha = 0.7f),
-                        fontSize = 16.sp
-                    )
-                }
             }
         }
     }

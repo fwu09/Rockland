@@ -16,8 +16,13 @@ data class CollectionItem(
     val customId: String = "",
     val locationLabel: String = "",
     val notes: String = "",
+    // User-uploaded images for this collection item (preferred field).
+    val userImageUrls: List<String> = emptyList(),
+    // Legacy field name kept for backward compatibility with older Firestore documents.
     val imageUrls: List<String> = emptyList(),
 
     val createdAt: Timestamp? = null,
     val updatedAt: Timestamp? = null
-)
+) {
+    fun effectiveUserImageUrls(): List<String> = if (userImageUrls.isNotEmpty()) userImageUrls else imageUrls
+}

@@ -1,4 +1,4 @@
-package com.example.rockland.viewmodel
+package com.example.rockland.presentation.viewmodel
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope

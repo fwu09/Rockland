@@ -59,7 +59,7 @@ import com.example.rockland.ui.theme.BackgroundLight
 import com.example.rockland.ui.theme.Rock1
 import com.example.rockland.ui.theme.Rock3
 import com.example.rockland.ui.theme.TextDark
-import com.example.rockland.viewmodel.MapViewModel
+import com.example.rockland.presentation.viewmodel.MapViewModel
 import com.google.android.gms.maps.CameraUpdateFactory
 import com.google.android.gms.maps.model.LatLng
 import com.google.maps.android.compose.GoogleMap
