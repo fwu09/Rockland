@@ -18,6 +18,7 @@ import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -34,6 +35,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -64,7 +66,8 @@ fun LoginScreen(
     onBackClick: () -> Unit = {},
     onLoginClick: (email: String, password: String) -> Unit = { _, _ -> },
     onRegisterClick: () -> Unit = {},
-    onClearError: () -> Unit = {}
+    onClearError: () -> Unit = {},
+    onShowMessage: (String) -> Unit = {}
 ) {
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
@@ -229,8 +232,11 @@ fun LoginScreen(
                     emailTouched = true
 
                     // Client-side validation before sending to server
-                    if (email.isNotBlank() && isValidEmail(email) && password.isNotBlank()) {
-                        onLoginClick(email.trim(), password)
+                    when {
+                        email.isBlank() -> onShowMessage("Email is required.")
+                        !isValidEmail(email) -> onShowMessage("Please enter a valid email address.")
+                        password.isBlank() -> onShowMessage("Password is required.")
+                        else -> onLoginClick(email.trim(), password)
                     }
                 },
                 enabled = !isLoading && isFormValid,
@@ -269,6 +275,18 @@ fun LoginScreen(
                         fontWeight = FontWeight.Bold
                     )
                 }
+            }
+        }
+
+        if (isLoading) {
+            // Block UI while auth is in progress to avoid double taps / navigation glitches.
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.18f)),
+                contentAlignment = Alignment.Center
+            ) {
+                CircularProgressIndicator(color = Rock1)
             }
         }
     }
