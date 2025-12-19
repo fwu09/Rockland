@@ -1,3 +1,4 @@
+// Hosts the collection and dictionary tabs while forwarding ViewModel events to the UI.
 package com.example.rockland.ui.screens
 
 import androidx.compose.foundation.background
@@ -430,7 +431,6 @@ private fun DictionaryTabContent(
             val fromCollection = collectionItems.mapNotNull { it.rockId.takeIf { id -> id.isNotBlank() } }.toSet()
             unlockedRockIds.value = unlocked + fromCollection
         }.onFailure { e ->
-            // Switching tabs cancels this effect; don't surface cancellations as errors.
             if (e is CancellationException) return@LaunchedEffect
             val msg = e.message ?: "Failed to load rock dictionary."
             error.value = msg

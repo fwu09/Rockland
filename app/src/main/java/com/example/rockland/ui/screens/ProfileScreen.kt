@@ -1,5 +1,5 @@
+// Screen presenting the user's profile stats and navigation actions.
 package com.example.rockland.ui.screens
-
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.animateFloatAsState

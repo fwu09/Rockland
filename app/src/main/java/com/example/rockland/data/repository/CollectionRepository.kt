@@ -9,16 +9,19 @@ import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 import kotlin.coroutines.suspendCoroutine
 
+// Performs Firestore reads/writes for the user's collection documents.
+
 class CollectionRepository(
     private val firestore: FirebaseFirestore = FirebaseFirestore.getInstance()
 ) {
 
+    // Reference to the signed-in user's collection subcollection.
     private fun userCollectionRef(userId: String) =
         firestore.collection("users")
             .document(userId)
             .collection("collection")
 
-    // Load all collection items for a given user.
+    // Loads every entry from the user's collection subcollection.
     suspend fun fetchCollection(userId: String): List<CollectionItem> =
         suspendCoroutine { cont ->
             userCollectionRef(userId)
@@ -36,7 +39,7 @@ class CollectionRepository(
                 }
         }
 
-    // Check whether the given rock is already in the user's collection.
+    // Checks for duplicates by rockId first, then rockName.
     suspend fun isRockInCollection(userId: String, rockId: String, rockName: String): Boolean =
         suspendCoroutine { cont ->
             userCollectionRef(userId)
@@ -64,7 +67,7 @@ class CollectionRepository(
                 }
         }
 
-    // Add a new collection entry for the current user.
+    // Adds a new collection entry and records the dictionary unlock.
     suspend fun addRockToCollection(
         userId: String,
         rockId: String,
@@ -73,7 +76,7 @@ class CollectionRepository(
         thumbnailUrl: String? = null,
         latitude: Double? = null,
         longitude: Double? = null
-    ): Unit {
+    ) {
         return suspendCoroutine { cont ->
             val data = hashMapOf(
                 "rockId" to rockId,
@@ -93,7 +96,7 @@ class CollectionRepository(
             userCollectionRef(userId)
                 .add(data)
                 .addOnSuccessListener {
-                    // Persist dictionary unlock once discovered; never remove on delete.
+                    // Persist dictionary unlock once discovered.
                     firestore.collection("users")
                         .document(userId)
                         .set(
@@ -108,7 +111,7 @@ class CollectionRepository(
         }
     }
 
-    // Update notes and extra fields of an existing collection entry.
+    // Updates notes, IDs, and timestamps for one entry.
     suspend fun updateCollectionItem(
         userId: String,
         itemId: String,
@@ -116,7 +119,7 @@ class CollectionRepository(
         locationLabel: String,
         notes: String,
         userImageUrls: List<String>
-    ): Unit {
+    ) {
         return suspendCoroutine { cont ->
             val updates = hashMapOf<String, Any>(
                 "customId" to customId,
@@ -136,7 +139,7 @@ class CollectionRepository(
         }
     }
 
-    // Append uploaded user photo URLs to the collection item.
+    // Appends new user photo URLs to the collection entry.
     suspend fun appendUserImageUrls(
         userId: String,
         itemId: String,
@@ -158,9 +161,7 @@ class CollectionRepository(
             .addOnFailureListener { e -> cont.resumeWithException(e) }
     }
 
-    // One-time migration:
-    // - If a doc has legacy `imageUrls` and missing/empty `userImageUrls`, copy over.
-    // - Optionally delete legacy `imageUrls` to keep Firestore clean.
+    // Migrates legacy imageUrls into userImageUrls and optionally deletes the old field.
     suspend fun migrateLegacyImageUrls(
         userId: String,
         deleteLegacyField: Boolean = true
@@ -191,8 +192,8 @@ class CollectionRepository(
             .addOnFailureListener { e -> cont.resumeWithException(e) }
     }
 
-    // Delete a collection entry for the user.
-    suspend fun removeRock(userId: String, itemId: String): Unit {
+    // Deletes the chosen collection document for this user.
+    suspend fun removeRock(userId: String, itemId: String) {
         return suspendCoroutine { cont ->
             userCollectionRef(userId)
                 .document(itemId)

@@ -1,3 +1,5 @@
+// Shows a detailed view for a single rock in the collection.
+// Keeps all UI state inside Compose for this screen.
 package com.example.rockland.ui.screens
 
 import androidx.compose.foundation.background
@@ -61,8 +63,7 @@ import com.example.rockland.ui.theme.Rock3
 import com.example.rockland.ui.theme.TextDark
 
 private object RockDictionaryCache {
-    // Simple in-memory cache to avoid reloading dictionary data when switching tabs
-    // or reopening the same item. Safe to clear on process death.
+    // Cache dictionary lookups to avoid repeated requests when tabs change.
     val byId = mutableMapOf<Int, Rock?>()
     val byNameKey = mutableMapOf<String, Rock?>()
 }
@@ -256,7 +257,7 @@ private fun RockInfoTab(
             } else if (errorMsg != null) {
                 Text(text = "Rarity: Unknown", color = TextDark)
                 Text(text = "Location: Unknown", color = TextDark)
-                Text(text = "Description: ${errorMsg!!}", color = Color.Red)
+                Text(text = "Description: ${errorMsg.orEmpty()}", color = Color.Red)
             } else {
                 Text(text = "Rarity: ${dictRock?.rockRarity ?: "Unknown"}", color = TextDark)
                 Text(text = "Location: ${dictRock?.rockLocation ?: "Unknown"}", color = TextDark)
@@ -337,7 +338,7 @@ private fun NoteDetailsTab(
         )
 
         Text(
-            text = if (item.notes.isNotBlank()) item.notes else "No notes yet.",
+            text = item.notes.ifBlank { "No notes yet." },
             style = MaterialTheme.typography.bodyMedium,
             color = TextDark
         )

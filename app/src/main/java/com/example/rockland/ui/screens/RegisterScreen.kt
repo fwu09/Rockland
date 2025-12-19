@@ -1,5 +1,5 @@
+// Screen handling the registration form in the UI layer.
 package com.example.rockland.ui.screens
-
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -222,7 +222,6 @@ fun RegisterScreen(
                 value = email,
                 onValueChange = {
                     email = it
-                    emailTouched = true
                 },
                 label = { Text(stringResource(R.string.email)) },
                 singleLine = true,
@@ -341,9 +340,6 @@ fun RegisterScreen(
 
             Button(
                 onClick = {
-                    // Mark email as touched to show validation errors
-                    emailTouched = true
-
                     // Client-side validation before sending to server
                     when {
                         firstName.isBlank() || lastName.isBlank() -> {
