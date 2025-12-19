@@ -1,6 +1,6 @@
+// Keeps the auth/profile wiring inside the ViewModel layer for Compose screens.
+// Lets the UI observe StateFlows without calling Firebase directly.
 package com.example.rockland.presentation.viewmodel
-// connecting the UI to firebase services
-
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
@@ -23,22 +23,21 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.SharingStarted
 
-// User view model
-
+// Manages Firebase auth flows, profile loading, and banners for the UI.
 class UserViewModel(
     private val authRepository: AuthRepository = FirebaseAuthRepository.getInstance(),
     private val userService: FirebaseUserService = FirebaseUserService.getInstance()
 ) : ViewModel() {
 
-    // Banner messages (success/error/info).
+    // Banner messages the UI collects to show alerts.
     private val _banners = MutableSharedFlow<UiBanner>(extraBufferCapacity = 1)
     val banners = _banners.asSharedFlow()
 
-    // User data state
+    // Stored profile data for Compose screens.
     private val _userData = MutableStateFlow<UserData?>(null)
     val userData: StateFlow<UserData?> = _userData.asStateFlow()
 
-    // Loading state
+    // Shows when an async auth/profile task runs.
     private val _isLoading = MutableStateFlow(false)
     val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
 
@@ -50,7 +49,7 @@ class UserViewModel(
         currentUser.map { it != null }.stateIn(viewModelScope, SharingStarted.Eagerly, false)
 
     init {
-        // Load user data when logged in
+        // Sync profile data whenever authentication changes.
         viewModelScope.launch {
             currentUser.collect { user ->
                 if (user != null) {
@@ -83,7 +82,7 @@ class UserViewModel(
         }
     }
 
-    // Register a new user - Firebase will automatically log in the user
+    // Registers a user and creates the Firestore profile document.
     fun registerUser(email: String, password: String, firstName: String, lastName: String) {
         viewModelScope.launch {
             try {
@@ -91,17 +90,14 @@ class UserViewModel(
 
                 android.util.Log.d("UserViewModel", "Starting registration for: $email")
 
-                // Create Firebase Auth user
                 when (val auth = authRepository.signUpWithEmail(email, password)) {
                     is AuthResult.Success -> {
                         val user = auth.value
                         android.util.Log.d("UserViewModel", "Auth user created, uid: ${user.uid}")
 
-                        // Create Firestore user profile
                         userService.createUserProfile(user, firstName, lastName)
                         android.util.Log.d("UserViewModel", "Firestore profile created")
 
-                        // The auth state listener in init{} will automatically load user data
                         showSuccess("Registration successful!")
                         android.util.Log.d("UserViewModel", "Registration completed successfully")
                     }
@@ -119,7 +115,7 @@ class UserViewModel(
         }
     }
 
-    // Login user
+    // Signs in so the auth listener can load the profile.
     fun loginUser(email: String, password: String) {
         viewModelScope.launch {
             try {
@@ -146,13 +142,13 @@ class UserViewModel(
         }
     }
 
-    // Logout user
+    // Signs out and notifies the UI via a banner.
     fun logout() {
         authRepository.signOut()
         showInfo("Signed out.")
     }
 
-    // Load user data
+    // Reloads cached profile data for the supplied UID.
     private fun loadUserData(userId: String) {
         viewModelScope.launch {
             try {
@@ -168,7 +164,7 @@ class UserViewModel(
         }
     }
 
-    // Update user profile
+    // Persists name updates, reloads the profile, and triggers a success banner.
     fun updateUserProfile(firstName: String, lastName: String) {
         val userId = currentUser.value?.uid ?: return
 

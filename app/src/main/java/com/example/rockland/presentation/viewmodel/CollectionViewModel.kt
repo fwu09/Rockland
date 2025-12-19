@@ -1,3 +1,5 @@
+// Screen responsible for managing the user's rock collection UI.
+// Acts as the ViewModel layer between Compose UI and data repositories.
 package com.example.rockland.presentation.viewmodel
 
 import android.content.Context
@@ -24,7 +26,7 @@ import kotlinx.coroutines.withContext
 import java.util.UUID
 import kotlinx.coroutines.CancellationException
 
-// UI state for the collection list.
+// Holds list data, loading, and banner-ready error for the collection screen.
 data class CollectionUiState(
     val items: List<CollectionItem> = emptyList(),
     val isLoading: Boolean = false,
@@ -36,10 +38,12 @@ sealed interface CollectionEvent {
     data class Error(val message: String, val rockId: String? = null) : CollectionEvent
 }
 
+// Holds UI state and user-driven events for the collection screen.
 class CollectionViewModel(
-    private val repository: CollectionRepository = CollectionRepository(),
     private val authRepository: AuthRepository = FirebaseAuthRepository.getInstance()
 ) : ViewModel() {
+
+    private val repository = CollectionRepository()
 
     private val _events = MutableSharedFlow<CollectionEvent>(extraBufferCapacity = 1)
     val events = _events.asSharedFlow()
@@ -53,7 +57,7 @@ class CollectionViewModel(
     private var migratedLegacyImagesForUid: String? = null
 
     init {
-        // React to auth changes and keep collection in sync with the current user.
+        // Keep collection data aligned with the signed-in user.
         viewModelScope.launch {
             currentUser.collect { user ->
                 if (user != null) {
@@ -74,7 +78,7 @@ class CollectionViewModel(
         }
     }
 
-    // Return current user id or set an error if not logged in.
+    // Ensures we have an authenticated UID or surfaces an error state.
     private fun currentUserIdOrError(): String? {
         val uid = currentUser.value?.uid
         if (uid == null) {
@@ -85,8 +89,8 @@ class CollectionViewModel(
         return uid
     }
 
-    // Load the current user's collection.
-    fun loadUserCollection(userId: String? = currentUserIdOrError()): Unit {
+    // Loads the signed-in user's collection or shows an error.
+    fun loadUserCollection(userId: String? = currentUserIdOrError()) {
         val uid = userId ?: return
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isLoading = true, errorMessage = null)
@@ -103,53 +107,12 @@ class CollectionViewModel(
         }
     }
 
-    // Add a rock from the map info card.
-    fun addRockFromMap(
-        rockId: String,
-        rockName: String,
-        thumbnailUrl: String? = null,
-        latitude: Double? = null,
-        longitude: Double? = null
-    ): Unit {
-        val userId = currentUserIdOrError() ?: return
-        viewModelScope.launch {
-            try {
-                // Prevent duplicates.
-                if (repository.isRockInCollection(userId, rockId, rockName)) {
-                    _events.tryEmit(CollectionEvent.Error("Already in your collection.", rockId = rockId))
-                    return@launch
-                }
-                repository.addRockToCollection(
-                    userId = userId,
-                    rockId = rockId,
-                    rockSource = "map",
-                    rockName = rockName,
-                    thumbnailUrl = thumbnailUrl,
-                    latitude = latitude,
-                    longitude = longitude
-                )
-                _events.tryEmit(CollectionEvent.Success("Added to collection.", rockId = rockId))
-                loadUserCollection(userId)
-            } catch (e: Exception) {
-                _events.tryEmit(
-                    CollectionEvent.Error(
-                        e.message ?: "Failed to add rock to collection.",
-                        rockId = rockId
-                    )
-                )
-                _uiState.value = _uiState.value.copy(
-                    errorMessage = e.message ?: "Failed to add rock to collection."
-                )
-            }
-        }
-    }
-
-    // Add a rock from the identification result screen.
+    // Handles adds triggered by the identification flow.
     fun addRockFromIdentification(
         rockId: String,
         rockName: String,
         thumbnailUrl: String? = null
-    ): Unit {
+    ) {
         val userId = currentUserIdOrError() ?: return
         viewModelScope.launch {
             try {
@@ -181,14 +144,14 @@ class CollectionViewModel(
         }
     }
 
-    // Save edits for an existing collection item.
+    // Persists edits for an existing collection item.
     fun updateCollectionItem(
         itemId: String,
         customId: String,
         locationLabel: String,
         notes: String,
         userImageUrls: List<String>
-    ): Unit {
+    ) {
         val userId = currentUserIdOrError() ?: return
         viewModelScope.launch {
             try {
@@ -209,8 +172,8 @@ class CollectionViewModel(
         }
     }
 
-    // Remove an item from the user's collection.
-    fun removeFromCollection(itemId: String): Unit {
+    // Removes an entry and reloads the list.
+    fun removeFromCollection(itemId: String) {
         val userId = currentUserIdOrError() ?: return
         viewModelScope.launch {
             try {
@@ -224,12 +187,7 @@ class CollectionViewModel(
         }
     }
 
-    fun clearError(): Unit {
-        _uiState.value = _uiState.value.copy(errorMessage = null)
-    }
-
-    // Upload user-selected photos to Firebase Storage and append their download URLs
-    // to the collection item (userImageUrls).
+    // Uploads photos to Firebase and records their download URLs.
     fun uploadUserPhotos(
         itemId: String,
         uris: List<Uri>,

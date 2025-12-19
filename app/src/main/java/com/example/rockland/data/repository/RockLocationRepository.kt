@@ -6,10 +6,12 @@ import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 import kotlin.coroutines.suspendCoroutine
 
+// Repository that exposes rockLocations documents for the map UI.
 class RockLocationRepository(
     private val firestore: FirebaseFirestore = FirebaseFirestore.getInstance()
 ) {
 
+    // Firestore collection storing nearby rock coordinates.
     private val collectionRef = firestore.collection("rockLocations")
 
     // TODO(Backend, RockLocationRepository.kt): Adjust query or migrate to REST backend if needed.

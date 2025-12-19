@@ -1,9 +1,6 @@
+// Firebase-backed AuthRepository that wraps FirebaseAuth calls with diagnostics helpers.
 package com.example.rockland.data.auth
 
-import android.net.DnsResolver
-import android.os.Build
-import android.os.CancellationSignal
-import android.os.SystemClock
 import com.google.firebase.FirebaseNetworkException
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseAuthException
@@ -17,13 +14,9 @@ import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
-import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
-import java.net.InetAddress
-import java.util.concurrent.Executors
-import kotlin.coroutines.resume
 
 class FirebaseAuthRepository(
     private val auth: FirebaseAuth = FirebaseAuth.getInstance()
@@ -41,17 +34,6 @@ class FirebaseAuthRepository(
     override suspend fun signUpWithEmail(email: String, password: String): AuthResult<FirebaseUser> {
         return withContext(Dispatchers.IO) {
             runAuthCall("signUpWithEmail", email) {
-                if (AuthDiagnostics.enabled) {
-                    val probe = quickProbe()
-                    if (!probe.ok) {
-                        return@runAuthCall AuthResult.Error(
-                            AuthError.Network(
-                                debugMessage = "Cannot reach Google auth endpoint. ${probe.summary}",
-                                throwable = null
-                            )
-                        )
-                    }
-                }
                 val r = withTimeout(TIMEOUT_MS) { auth.createUserWithEmailAndPassword(email, password).await() }
                 val user = r.user ?: return@runAuthCall AuthResult.Error(AuthError.Unknown("No user returned from FirebaseAuth"))
                 AuthResult.Success(user)
@@ -62,17 +44,6 @@ class FirebaseAuthRepository(
     override suspend fun signInWithEmail(email: String, password: String): AuthResult<FirebaseUser> {
         return withContext(Dispatchers.IO) {
             runAuthCall("signInWithEmail", email) {
-                if (AuthDiagnostics.enabled) {
-                    val probe = quickProbe()
-                    if (!probe.ok) {
-                        return@runAuthCall AuthResult.Error(
-                            AuthError.Network(
-                                debugMessage = "Cannot reach Google auth endpoint. ${probe.summary}",
-                                throwable = null
-                            )
-                        )
-                    }
-                }
                 val r = withTimeout(TIMEOUT_MS) { auth.signInWithEmailAndPassword(email, password).await() }
                 val user = r.user ?: return@runAuthCall AuthResult.Error(AuthError.Unknown("No user returned from FirebaseAuth"))
                 AuthResult.Success(user)
@@ -83,17 +54,6 @@ class FirebaseAuthRepository(
     override suspend fun sendPasswordResetEmail(email: String): AuthResult<Unit> {
         return withContext(Dispatchers.IO) {
             runAuthCall("sendPasswordResetEmail", email) {
-                if (AuthDiagnostics.enabled) {
-                    val probe = quickProbe()
-                    if (!probe.ok) {
-                        return@runAuthCall AuthResult.Error(
-                            AuthError.Network(
-                                debugMessage = "Cannot reach Google auth endpoint. ${probe.summary}",
-                                throwable = null
-                            )
-                        )
-                    }
-                }
                 withTimeout(TIMEOUT_MS) { auth.sendPasswordResetEmail(email).await() }
                 AuthResult.Success(Unit)
             }
@@ -161,71 +121,9 @@ class FirebaseAuthRepository(
         }
     }
 
-    private data class ProbeResult(val ok: Boolean, val summary: String, val elapsedMs: Long)
-
-    private suspend fun quickProbe(): ProbeResult {
-        val start = SystemClock.elapsedRealtime()
-        val details = mutableListOf<String>()
-        var anyOk = false
-
-        val hosts = listOf(
-            "identitytoolkit.googleapis.com",
-            "www.googleapis.com"
-        )
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            for (host in hosts) {
-                val t0 = SystemClock.elapsedRealtime()
-                android.util.Log.d(TAG, "probe: dns $host")
-                val r = runCatching {
-                    val ips = withTimeout(3000) { resolveDns(host) }
-                    val dt = SystemClock.elapsedRealtime() - t0
-                    anyOk = anyOk || ips.isNotEmpty()
-                    "dns $host ok ips=${ips.size} in ${dt}ms"
-                }.getOrElse {
-                    val dt = SystemClock.elapsedRealtime() - t0
-                    "dns $host error=${it.javaClass.simpleName}:${it.message ?: ""} in ${dt}ms"
-                }
-                details.add(r)
-            }
-        } else {
-            details.add("dns unsupported (SDK<29)")
-        }
-
-        val summary = details.joinToString(" | ")
-        val elapsed = SystemClock.elapsedRealtime() - start
-        android.util.Log.d(TAG, "probe: ok=$anyOk total=${elapsed}ms $summary")
-        return ProbeResult(ok = anyOk, summary = summary, elapsedMs = elapsed)
-    }
-
-    private suspend fun resolveDns(host: String): List<InetAddress> {
-        return suspendCancellableCoroutine { cont ->
-            val signal = CancellationSignal()
-            cont.invokeOnCancellation { signal.cancel() }
-
-            DnsResolver.getInstance().query(
-                null,
-                host,
-                DnsResolver.FLAG_EMPTY,
-                PROBE_EXECUTOR,
-                signal,
-                object : DnsResolver.Callback<List<InetAddress>> {
-                    override fun onAnswer(answer: List<InetAddress>, rcode: Int) {
-                        cont.resume(answer)
-                    }
-
-                    override fun onError(error: DnsResolver.DnsException) {
-                        cont.resume(emptyList())
-                    }
-                }
-            )
-        }
-    }
-
     companion object {
         private const val TAG = "FirebaseAuthRepo"
         private const val TIMEOUT_MS = 60_000L
-        private val PROBE_EXECUTOR = Executors.newCachedThreadPool()
 
         @Volatile private var instance: FirebaseAuthRepository? = null
 

@@ -1,5 +1,5 @@
+// Shows nearby rock locations and lets users recenter or view details.
 package com.example.rockland.ui.screens
-
 import android.Manifest
 import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult

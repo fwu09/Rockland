@@ -1,8 +1,6 @@
 package com.example.rockland.data.model
 
-/**
- * Rock location domain model used across map and collection features.
- */
+// Domain model for locations shown on the map and dictionary screens.
 data class RockLocation(
     val id: String = "",
     val name: String = "",

@@ -1,3 +1,4 @@
+// Entry point that boots Firebase, App Check, and navigation for the Compose UI layer.
 package com.example.rockland
 
 import android.os.Bundle

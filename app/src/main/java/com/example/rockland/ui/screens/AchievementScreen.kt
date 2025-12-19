@@ -1,5 +1,5 @@
+// Simple screen that highlights the user's achievements in the UI layer.
 package com.example.rockland.ui.screens
-
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize

@@ -1,5 +1,5 @@
+// Screen orchestrating bottom navigation and child content in the UI layer.
 package com.example.rockland.ui.screens
-
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth

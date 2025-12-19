@@ -1,3 +1,4 @@
+// Firestore-based user profile model and service used by UserViewModel.
 package com.example.rockland.data.datasource.remote
 
 import com.google.firebase.auth.FirebaseUser

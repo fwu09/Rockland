@@ -1,5 +1,5 @@
+// Entry point for the identify-rock feature and its supporting states.
 package com.example.rockland.ui.screens
-
 import android.content.Context
 import android.content.pm.ApplicationInfo
 import android.graphics.Bitmap
@@ -708,7 +708,6 @@ fun IdentifierResultScreen(
                 )
             } ?: Spacer(modifier = Modifier.height(16.dp))
 
-            // Optional fields
             rockRarity?.let {
                 Text(
                     text = "Rarity: $it",
