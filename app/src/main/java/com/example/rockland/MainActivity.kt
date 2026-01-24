@@ -18,7 +18,7 @@ import com.example.rockland.data.auth.AuthDiagnostics
 class MainActivity : ComponentActivity() {
     private companion object {
         // Turn this on only when debugging network/DNS issues.
-        private const val ENABLE_AUTH_DIAGNOSTICS = false
+        //private const val ENABLE_AUTH_DIAGNOSTICS = false
     }
 
     private fun isDebuggableBuild(): Boolean {
@@ -36,7 +36,7 @@ class MainActivity : ComponentActivity() {
         // Initialize Firebase
         FirebaseApp.initializeApp(this)
         android.util.Log.d("MainActivity", "debuggable=${isDebuggableBuild()} gmsStatus=${GoogleApiAvailability.getInstance().isGooglePlayServicesAvailable(this)}")
-        AuthDiagnostics.enabled = ENABLE_AUTH_DIAGNOSTICS && isDebuggableBuild()
+        AuthDiagnostics.enabled = false
 
         if (isDebuggableBuild()) {
             // Initialize Firebase App Check (CRITICAL for Firebase Auth/Firestore to work)
