@@ -1,28 +1,27 @@
 package com.example.rockland.navigation
 
-import android.widget.Toast
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
-import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.Alignment
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
-import com.example.rockland.ui.components.NotificationDialog
+import com.example.rockland.ui.components.TopBannerHost
+import com.example.rockland.presentation.model.UiBanner
 import com.example.rockland.ui.screens.LoginScreen
 import com.example.rockland.ui.screens.MainScreen
 import com.example.rockland.ui.screens.RegisterScreen
 import com.example.rockland.ui.screens.SettingsScreen
 import com.example.rockland.ui.screens.WelcomeScreen
-import com.example.rockland.viewmodel.UserViewModel
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
+import com.example.rockland.presentation.viewmodel.UserViewModel
 
 // Application routes
 object AppRoutes {
@@ -38,56 +37,34 @@ object AppRoutes {
 fun AppNavigation(
     navController: NavHostController = rememberNavController()
 ) {
-    val context = LocalContext.current
     val userViewModel: UserViewModel = viewModel(factory = UserViewModel.Factory())
     val isLoggedIn by userViewModel.isLoggedIn.collectAsState()
-    val error by userViewModel.error.collectAsState()
     val isLoading by userViewModel.isLoading.collectAsState()
-    val successMessage by userViewModel.successMessage.collectAsState()
+    val bannerState = remember { mutableStateOf<UiBanner?>(null) }
 
-    // Dialog state
-    var showSuccessDialog by remember { mutableStateOf(false) }
-    var dialogTitle by remember { mutableStateOf("") }
-    var dialogMessage by remember { mutableStateOf("") }
-
-    // Navigate after dialog dismiss
-    var navigateToLogin by remember { mutableStateOf(false) }
-
-    // Show error toast if needed
-    error?.let {
-        Toast.makeText(context, it, Toast.LENGTH_SHORT).show()
-        userViewModel.clearError()
+    LaunchedEffect(Unit) {
+        userViewModel.banners.collect { bannerState.value = it }
     }
 
-    // Show success dialog only for registration
-    successMessage?.let {
-        if (it.contains("Registration successful")) {
-            dialogTitle = "Success"
-            dialogMessage = it
-            showSuccessDialog = true
-            navigateToLogin = true
-        }
-        userViewModel.clearSuccessMessage()
-    }
-
-    // Success dialog
-    if (showSuccessDialog) {
-        NotificationDialog(
-            title = dialogTitle,
-            message = dialogMessage,
-            onDismiss = {
-                showSuccessDialog = false
-                // Navigate to login if registration was successful
-                if (navigateToLogin) {
-                    navController.navigate(AppRoutes.LOGIN) {
-                        popUpTo(AppRoutes.REGISTER) { inclusive = true }
-                    }
-                    navigateToLogin = false
+    // Auth gate: MAIN is only reachable after login.
+    LaunchedEffect(isLoggedIn) {
+        val route = navController.currentDestination?.route
+        if (isLoggedIn) {
+            if (route == AppRoutes.WELCOME || route == AppRoutes.LOGIN || route == AppRoutes.REGISTER) {
+                navController.navigate(AppRoutes.MAIN) {
+                    popUpTo(AppRoutes.WELCOME) { inclusive = true }
                 }
             }
-        )
+        } else {
+            if (route == AppRoutes.MAIN || route == AppRoutes.SETTINGS) {
+                navController.navigate(AppRoutes.WELCOME) {
+                    popUpTo(AppRoutes.MAIN) { inclusive = true }
+                }
+            }
+        }
     }
 
+    Box(modifier = androidx.compose.ui.Modifier.fillMaxSize()) {
     NavHost(
         navController = navController,
         startDestination = AppRoutes.WELCOME
@@ -100,43 +77,54 @@ fun AppNavigation(
                 },
                 onSignUpClick = {
                     navController.navigate(AppRoutes.REGISTER)
-                },
-                onSkipClick = {
-                    navController.navigate(AppRoutes.MAIN) {
-                        popUpTo(AppRoutes.WELCOME) { inclusive = true }
-                    }
                 }
             )
         }
 
         // Login screen
         composable(AppRoutes.LOGIN) {
+
+            LaunchedEffect(isLoggedIn) {
+                if (isLoggedIn) {
+                    navController.navigate(AppRoutes.MAIN) {
+                        popUpTo(AppRoutes.WELCOME) { inclusive = true }
+                    }
+                }
+            }
+
             LoginScreen(
+                isLoading = isLoading,
+                    errorMessage = null, // handled via top banner
                 onBackClick = {
                     navController.popBackStack()
                 },
                 onLoginClick = { email, password ->
                     userViewModel.loginUser(email, password)
-                    // Navigate to main screen after a short delay to allow login to complete
-                    CoroutineScope(Dispatchers.Main).launch {
-                        if (userViewModel.isLoggedIn.value) {
-                            navController.navigate(AppRoutes.MAIN) {
-                                popUpTo(AppRoutes.WELCOME) { inclusive = true }
-                            }
-                        }
-                    }
                 },
                 onRegisterClick = {
                     navController.navigate(AppRoutes.REGISTER) {
                         popUpTo(AppRoutes.LOGIN) { inclusive = true }
                     }
-                }
+                },
+                    onClearError = { /* no-op */ },
+                    onShowMessage = { msg -> userViewModel.showError(msg) }
             )
         }
 
         // Register screen
         composable(AppRoutes.REGISTER) {
+
+            LaunchedEffect(isLoggedIn) {
+                if (isLoggedIn) {
+                    navController.navigate(AppRoutes.MAIN) {
+                        popUpTo(AppRoutes.WELCOME) { inclusive = true }
+                    }
+                }
+            }
+
             RegisterScreen(
+                isLoading = isLoading,
+                    errorMessage = null, // handled via top banner
                 onBackClick = {
                     navController.popBackStack()
                 },
@@ -147,7 +135,9 @@ fun AppNavigation(
                     navController.navigate(AppRoutes.LOGIN) {
                         popUpTo(AppRoutes.REGISTER) { inclusive = true }
                     }
-                }
+                },
+                    onClearError = { /* no-op */ },
+                    onShowMessage = { msg -> userViewModel.showError(msg) }
             )
         }
 
@@ -174,11 +164,22 @@ fun AppNavigation(
             SettingsScreen(
                 userData = userData,
                 onBackClick = {
-                    navController.popBackStack()
+                    // Ensure we navigate back to MAIN screen explicitly
+                    if (!navController.popBackStack()) {
+                        // If popBackStack fails (no previous screen), navigate to MAIN
+                        navController.navigate(AppRoutes.MAIN) {
+                            popUpTo(AppRoutes.MAIN) { inclusive = true }
+                        }
+                    }
                 },
                 onSaveClick = { firstName, lastName, _ ->
                     userViewModel.updateUserProfile(firstName, lastName)
-                    navController.popBackStack()
+                    // Navigate back to MAIN after saving
+                    if (!navController.popBackStack()) {
+                        navController.navigate(AppRoutes.MAIN) {
+                            popUpTo(AppRoutes.MAIN) { inclusive = true }
+                        }
+                    }
                 },
                 onLogoutClick = {
                     userViewModel.logout()
@@ -188,6 +189,13 @@ fun AppNavigation(
                 }
             )
         }
+        }
+
+        TopBannerHost(
+            banner = bannerState.value,
+            onDismiss = { bannerState.value = null },
+            modifier = androidx.compose.ui.Modifier.align(Alignment.TopCenter)
+        )
     }
 }
 

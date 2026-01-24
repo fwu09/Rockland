@@ -1,5 +1,5 @@
+// Screen presenting the user's profile stats and navigation actions.
 package com.example.rockland.ui.screens
-
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.animateFloatAsState
@@ -22,6 +22,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.EmojiEvents
 import androidx.compose.material.icons.filled.Explore
 import androidx.compose.material.icons.filled.Landscape
@@ -51,7 +52,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.rockland.R
-import com.example.rockland.firebase.UserData
+import com.example.rockland.data.datasource.remote.UserData
 import com.example.rockland.ui.theme.BackgroundDark
 import com.example.rockland.ui.theme.Rock1
 import com.example.rockland.ui.theme.Rock3
@@ -64,7 +65,8 @@ import com.example.rockland.ui.theme.TextLight
 fun ProfileScreen(
     userData: UserData? = null,
     onSettingsClick: () -> Unit = {},
-    onLogoutClick: () -> Unit = {}
+    onLogoutClick: () -> Unit = {},
+    onBackClick: () -> Unit = {}
 ) {
     // Calculate level based on experience points
     val level = calculateLevel(userData?.experience ?: 0)
@@ -78,26 +80,30 @@ fun ProfileScreen(
             .background(Color(0xFFF5F5F5))
             .verticalScroll(rememberScrollState())
     ) {
-        // Top bar with welcome message and settings button
-        Box(
+        // Top bar with back button, title and settings button
+        Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 8.dp)
+                .padding(horizontal = 8.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            Column(
-                modifier = Modifier.align(Alignment.CenterStart)
-            ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = onBackClick) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                        contentDescription = "Back"
+                    )
+                }
                 Text(
-                    text = "Welcome back to your profile",
-                    fontSize = 16.sp,
-                    color = TextDark.copy(alpha = 0.7f)
+                    text = "Profile",
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = TextDark
                 )
             }
 
-            IconButton(
-                onClick = onSettingsClick,
-                modifier = Modifier.align(Alignment.CenterEnd)
-            ) {
+            IconButton(onClick = onSettingsClick) {
                 Icon(
                     imageVector = Icons.Default.Settings,
                     contentDescription = stringResource(R.string.settings),

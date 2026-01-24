@@ -1,5 +1,5 @@
+// Screen exposing settings-related controls while staying within the UI layer.
 package com.example.rockland.ui.screens
-
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -39,7 +39,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.rockland.R
-import com.example.rockland.firebase.UserData
+import com.example.rockland.data.datasource.remote.UserData
 import com.example.rockland.ui.theme.BackgroundDark
 import com.example.rockland.ui.theme.Rock1
 import com.example.rockland.ui.theme.Rock3

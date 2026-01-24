@@ -18,3 +18,4 @@ val BackgroundDark = Color(0xFF2D2D2D)  // Dark background
 // Accent colors
 val AccentGreen = Color(0xFF7D8C6D)    // Subtle green accent
 val AccentBlue = Color(0xFF6D8C9E)     // Subtle blue accent
+val AccentRed = Color(0xFFB06A6A)      // Subtle red accent for errors
