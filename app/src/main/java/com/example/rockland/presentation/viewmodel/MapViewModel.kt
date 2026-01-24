@@ -6,6 +6,9 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.rockland.data.model.RockLocation
 import com.example.rockland.data.repository.RockLocationRepository
+import com.example.rockland.data.model.RockCommunityContent
+import com.example.rockland.data.model.RockComment
+import com.example.rockland.data.model.RockPhoto
 import com.google.android.gms.maps.model.LatLng
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -16,6 +19,12 @@ class MapUiState(
     val locations: List<RockLocation> = emptyList(),
     val isLoading: Boolean = true
 )
+
+enum class CommunityTab {
+    COMMENTS,
+    PHOTOS,
+    ANNOTATIONS
+}
 
 // Manages map loading, filtering, selection, and recentering for Compose screens.
 class MapViewModel(
@@ -33,6 +42,18 @@ class MapViewModel(
 
     private val _locationError = MutableStateFlow<String?>(null)
     val locationError: StateFlow<String?> = _locationError
+
+    private val _communityContent = MutableStateFlow(RockCommunityContent())
+    val communityContent: StateFlow<RockCommunityContent> = _communityContent
+
+    private val _activeCommunityTab = MutableStateFlow(CommunityTab.COMMENTS)
+    val activeCommunityTab: StateFlow<CommunityTab> = _activeCommunityTab
+
+    private val _showAddCommentForm = MutableStateFlow(false)
+    val showAddCommentForm: StateFlow<Boolean> = _showAddCommentForm
+
+    private val _showAddPhotoForm = MutableStateFlow(false)
+    val showAddPhotoForm: StateFlow<Boolean> = _showAddPhotoForm
 
     // Tracks recenter requests so the camera animation can run even without coordinate changes.
     private val _recenterRequests = MutableStateFlow(0)
@@ -67,7 +88,11 @@ class MapViewModel(
 
     // Updates the selected rock for detail panels.
     fun selectLocation(id: String) {
-        _selectedLocation.value = _uiState.value.locations.firstOrNull { it.id == id }
+        val location = _uiState.value.locations.firstOrNull { it.id == id }
+        _selectedLocation.value = location
+        location?.let {
+            loadCommunityContent(it.id)
+        }
     }
 
     // Clears the highlighted rock.
@@ -100,5 +125,68 @@ class MapViewModel(
             latDiff * latDiff + lngDiff * lngDiff
         }
         _selectedLocation.value = nearest
+    }
+
+    fun setCommunityTab(tab: CommunityTab) {
+        _activeCommunityTab.value = tab
+    }
+
+    fun showCommentForm() {
+        _showAddCommentForm.value = true
+        _showAddPhotoForm.value = false
+    }
+
+    fun hideCommentForm() {
+        _showAddCommentForm.value = false
+    }
+
+    fun showPhotoForm() {
+        _showAddPhotoForm.value = true
+        _showAddCommentForm.value = false
+    }
+
+    fun hidePhotoForm() {
+        _showAddPhotoForm.value = false
+    }
+
+    fun submitComment(text: String, author: String = "You") {
+        val newComment = RockComment(
+            id = "comment-${System.currentTimeMillis()}",
+            author = author,
+            text = text,
+            timestamp = System.currentTimeMillis()
+        )
+        _communityContent.value = _communityContent.value.copy(
+            comments = _communityContent.value.comments + newComment
+        )
+        hideCommentForm()
+        _activeCommunityTab.value = CommunityTab.COMMENTS
+    }
+
+    fun submitPhoto(caption: String, imageUrl: String) {
+        val newPhoto = RockPhoto(
+            id = "photo-${System.currentTimeMillis()}",
+            author = "You",
+            caption = caption,
+            imageUrl = imageUrl.ifBlank {
+                "https://images.unsplash.com/photo-1488376731099-56a7f1c8df5b"
+            }
+        )
+        _communityContent.value = _communityContent.value.copy(
+            photos = _communityContent.value.photos + newPhoto
+        )
+        hidePhotoForm()
+        _activeCommunityTab.value = CommunityTab.PHOTOS
+    }
+
+    private fun loadCommunityContent(locationId: String) {
+        viewModelScope.launch {
+            try {
+                val content = repository.fetchCommunityContent(locationId)
+                _communityContent.value = content
+            } catch (_: Throwable) {
+                _communityContent.value = RockCommunityContent()
+            }
+        }
     }
 }
