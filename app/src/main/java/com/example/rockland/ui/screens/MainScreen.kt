@@ -22,7 +22,6 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.tooling.preview.Preview
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.rockland.data.datasource.remote.UserData
 import com.example.rockland.presentation.viewmodel.MapViewModel
@@ -109,6 +108,7 @@ fun MainScreenContent(
                 0 -> CollectionScreen(userViewModel = userViewModel)
                 1 -> MapScreen(
                     viewModel = MapViewModel(),
+                    userViewModel = userViewModel,
                     onInfoDetailsClick = { /* TODO: map info details navigation */ },
                     onAddCommentClick = { /* TODO: map comment navigation */ }
                 )
@@ -119,7 +119,7 @@ fun MainScreenContent(
                 )
 
                 3 -> IdentifierScreen(userViewModel = userViewModel)
-                4 -> AchievementScreen()
+                4 -> AchievementScreen(userId = userData?.userId)
                 5 -> ProfileScreen(
                     userData = userData,
                     onSettingsClick = onSettingsClick,
@@ -137,15 +137,3 @@ fun MainScreenContent(
     }
 }
 
-@Preview(showBackground = true)
-@Composable
-fun MainScreenPreview() {
-    MainScreenContent(
-        selectedTab = 0,
-        onTabSelected = {},
-        userData = UserData(firstName = "Preview", lastName = "User"),
-        userViewModel = UserViewModel(),
-        onSettingsClick = {},
-        onLogoutClick = {}
-    )
-}
