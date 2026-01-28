@@ -9,6 +9,7 @@ import androidx.lifecycle.viewModelScope
 import com.example.rockland.data.auth.AuthRepository
 import com.example.rockland.data.auth.FirebaseAuthRepository
 import com.example.rockland.data.model.CollectionItem
+import com.example.rockland.data.repository.AwardsRepository
 import com.example.rockland.data.repository.CollectionRepository
 import com.google.firebase.ktx.Firebase
 import com.google.firebase.storage.ktx.storage
@@ -44,6 +45,7 @@ class CollectionViewModel(
 ) : ViewModel() {
 
     private val repository = CollectionRepository()
+    private val awardsRepository = AwardsRepository()
 
     private val _events = MutableSharedFlow<CollectionEvent>(extraBufferCapacity = 1)
     val events = _events.asSharedFlow()
@@ -57,7 +59,6 @@ class CollectionViewModel(
     private var migratedLegacyImagesForUid: String? = null
 
     init {
-        // Keep collection data aligned with the signed-in user.
         viewModelScope.launch {
             currentUser.collect { user ->
                 if (user != null) {
@@ -128,6 +129,10 @@ class CollectionViewModel(
                     rockName = rockName,
                     thumbnailUrl = thumbnailUrl
                 )
+                val triggerResult = awardsRepository.applyTrigger(userId, "collect_rock")
+                triggerResult.messages.firstOrNull()?.let { message ->
+                    _events.tryEmit(CollectionEvent.Success(message))
+                }
                 _events.tryEmit(CollectionEvent.Success("Added to collection.", rockId = rockId))
                 loadUserCollection(userId)
             } catch (e: Exception) {
@@ -187,6 +192,19 @@ class CollectionViewModel(
         }
     }
 
+    fun recordReadRockInfo() {
+        val userId = currentUserIdOrError() ?: return
+        viewModelScope.launch {
+            try {
+                val triggerResult = awardsRepository.applyTrigger(userId, "read_rock_info")
+                triggerResult.messages.firstOrNull()?.let { message ->
+                    _events.tryEmit(CollectionEvent.Success(message))
+                }
+            } catch (_: Exception) {
+            }
+        }
+    }
+
     // Uploads photos to Firebase and records their download URLs.
     fun uploadUserPhotos(
         itemId: String,
@@ -222,7 +240,6 @@ class CollectionViewModel(
                 loadUserCollection(userId)
                 onUploaded(urls)
             } catch (e: CancellationException) {
-                // UI left composition / app backgrounded; don't show as an error banner.
                 throw e
             } catch (e: Exception) {
                 _events.tryEmit(CollectionEvent.Error(e.message ?: "Failed to upload photos.", rockId = null))

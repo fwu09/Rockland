@@ -20,14 +20,12 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.rockland.R
 import com.example.rockland.ui.theme.BackgroundLight
 import com.example.rockland.ui.theme.Rock1
 import com.example.rockland.ui.theme.Rock3
-import com.example.rockland.ui.theme.RocklandTheme
 import com.example.rockland.ui.theme.TextDark
 import com.example.rockland.ui.theme.TextLight
 
@@ -107,13 +105,5 @@ fun WelcomeScreen(
 
             }
         }
-    }
-}
-
-@Preview(showBackground = true)
-@Composable
-fun WelcomeScreenPreview() {
-    RocklandTheme {
-        WelcomeScreen()
     }
 }

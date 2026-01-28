@@ -47,7 +47,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -163,7 +162,12 @@ fun CollectionDetailScreen(
             }
 
             when (selectedTab) {
-                0 -> RockInfoTab(item = item, dictRock = dictRock, isLoading = isDictLoading, errorMsg = dictErrorMsg)
+                0 -> RockInfoTab(
+                    item = item,
+                    dictRock = dictRock,
+                    isLoading = isDictLoading,
+                    errorMsg = dictErrorMsg
+                )
                 1 -> NoteDetailsTab(item = item, onEditClick = { showEditSheet = true })
             }
         }
@@ -534,22 +538,3 @@ private fun EditNotesSheet(
     }
 }
 
-@Preview(showBackground = true)
-@Composable
-private fun CollectionDetailScreenPreview() {
-    val sample = CollectionItem(
-        id = "1",
-        rockId = "rock-1",
-        rockName = "Granite",
-        notes = "Sample note about this rock.",
-        latitude = 37.7749,
-        longitude = -122.4194
-    )
-    CollectionDetailScreen(
-        item = sample,
-        collectionViewModel = CollectionViewModel(),
-        onBack = {},
-        onSaveNotes = { _, _, _ -> },
-        onItemUpdated = {}
-    )
-}

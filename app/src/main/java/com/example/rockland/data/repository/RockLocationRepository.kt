@@ -6,9 +6,8 @@ import com.example.rockland.data.model.RockComment
 import com.example.rockland.data.model.RockLocation
 import com.example.rockland.data.model.RockPhoto
 import com.google.firebase.firestore.FirebaseFirestore
-import kotlin.coroutines.resume
-import kotlin.coroutines.resumeWithException
-import kotlin.coroutines.suspendCoroutine
+import com.google.firebase.firestore.Query
+import kotlinx.coroutines.tasks.await
 
 // Repository that exposes rockLocations documents for the map UI.
 class RockLocationRepository(
@@ -17,87 +16,113 @@ class RockLocationRepository(
 
     // Firestore collection storing nearby rock coordinates.
     private val collectionRef = firestore.collection("rockLocations")
-    private val communityLibrary = mapOf(
-        "demo-rock-1" to defaultCommunityContent
-    )
+    suspend fun fetchRockLocations(): List<RockLocation> {
+        val snapshot = collectionRef.get().await()
+        return snapshot.documents.mapNotNull { doc ->
+            val lat = doc.getDouble("latitude")
+            val lng = doc.getDouble("longitude")
+            val name = doc.getString("name") ?: ""
+            val description = doc.getString("description") ?: ""
+            val category = doc.getString("category") ?: ""
+            if (lat != null && lng != null) {
+                RockLocation(
+                    id = doc.id,
+                    name = name,
+                    description = description,
+                    latitude = lat,
+                    longitude = lng,
+                    category = category
+                )
+            } else {
+                null
+            }
+        }
+    }
 
-    // TODO(Backend, RockLocationRepository.kt): Adjust query or migrate to REST backend if needed.
-    suspend fun fetchRockLocations(): List<RockLocation> = suspendCoroutine { cont ->
-        collectionRef
+    private fun communityDoc(locationId: String) =
+        collectionRef.document(locationId).collection("community").document("default")
+
+    private fun commentsRef(locationId: String) = communityDoc(locationId).collection("comments")
+    private fun photosRef(locationId: String) = communityDoc(locationId).collection("photos")
+    private fun annotationsRef(locationId: String) = communityDoc(locationId).collection("annotations")
+
+    suspend fun fetchCommunityContent(locationId: String): RockCommunityContent {
+        val commentsSnapshot = commentsRef(locationId)
+            .orderBy("timestamp", Query.Direction.DESCENDING)
             .get()
-            .addOnSuccessListener { snapshot ->
-                val list = snapshot.documents.mapNotNull { doc ->
-                    val lat = doc.getDouble("latitude")
-                    val lng = doc.getDouble("longitude")
-                    val name = doc.getString("name") ?: ""
-                    val description = doc.getString("description") ?: ""
-                    val category = doc.getString("category") ?: ""
-                    if (lat != null && lng != null) {
-                        RockLocation(
-                            id = doc.id,
-                            name = name,
-                            description = description,
-                            latitude = lat,
-                            longitude = lng,
-                            category = category
-                        )
-                    } else {
-                        null
-                    }
-                }
-                cont.resume(list)
-            }
-            .addOnFailureListener { exception ->
-                cont.resumeWithException(exception)
-            }
-    }
+            .await()
 
-    fun fetchCommunityContent(locationId: String): RockCommunityContent {
-        return communityLibrary[locationId] ?: defaultCommunityContent
-    }
+        val photosSnapshot = photosRef(locationId)
+            .get()
+            .await()
 
-    companion object {
-        private val defaultCommunityContent = RockCommunityContent(
-            comments = listOf(
-                RockComment(
-                    id = "comment-1",
-                    author = "Alex",
-                    text = "Sunrise light makes the mineral grains shine here.",
-                    timestamp = System.currentTimeMillis() - 3600000
-                ),
-                RockComment(
-                    id = "comment-2",
-                    author = "Maya",
-                    text = "I found a small deposit of quartz veins tucked behind the ledge.",
-                    timestamp = System.currentTimeMillis() - 7200000
-                )
-            ),
-            photos = listOf(
-                RockPhoto(
-                    id = "photo-1",
-                    author = "Riley",
-                    caption = "Serpentine textures caught under overcast light.",
-                    imageUrl = "https://images.unsplash.com/photo-1500530855697-b586d89ba3ee"
-                ),
-                RockPhoto(
-                    id = "photo-2",
-                    author = "Jordan",
-                    caption = "Hand sample that reveals the sharp fracture planes.",
-                    imageUrl = "https://images.unsplash.com/photo-1516501545647-5e209f2d848f"
-                )
-            ),
-            annotations = listOf(
-                RockAnnotation(
-                    id = "annotation-1",
-                    expertName = "Dr. Stone",
-                    note = "Layered foliation points to a medium-grade metamorphic history."
-                ),
-                RockAnnotation(
-                    id = "annotation-2",
-                    expertName = "GeoNet",
-                    note = "Presence of garnet-rich bands near the west trail."
-                )
+        val annotationsSnapshot = annotationsRef(locationId)
+            .get()
+            .await()
+
+        val comments = commentsSnapshot.documents.map { doc ->
+            RockComment(
+                id = doc.id,
+                userId = doc.getString("userId") ?: "",
+                author = doc.getString("author") ?: "Unknown",
+                text = doc.getString("text") ?: "",
+                timestamp = doc.getLong("timestamp") ?: 0L
             )
+        }
+
+        val photos = photosSnapshot.documents.map { doc ->
+            RockPhoto(
+                id = doc.id,
+                author = doc.getString("author") ?: "Unknown",
+                caption = doc.getString("caption") ?: "",
+                imageUrl = doc.getString("imageUrl") ?: ""
+            )
+        }
+
+        val annotations = annotationsSnapshot.documents.map { doc ->
+            RockAnnotation(
+                id = doc.id,
+                expertName = doc.getString("expertName") ?: "Expert",
+                note = doc.getString("note") ?: ""
+            )
+        }
+
+        return RockCommunityContent(
+            comments = comments,
+            photos = photos,
+            annotations = annotations
         )
+    }
+
+    suspend fun addComment(locationId: String, userId: String, author: String, text: String) {
+        val payload = mapOf(
+            "userId" to userId,
+            "author" to author,
+            "text" to text,
+            "timestamp" to System.currentTimeMillis()
+        )
+        commentsRef(locationId).add(payload).await()
+    }
+
+    suspend fun updateComment(locationId: String, commentId: String, newText: String) {
+        val payload = mapOf(
+            "text" to newText,
+            "updatedAt" to System.currentTimeMillis()
+        )
+        commentsRef(locationId).document(commentId).update(payload).await()
+    }
+
+    suspend fun deleteComment(locationId: String, commentId: String) {
+        commentsRef(locationId).document(commentId).delete().await()
+    }
+
+    suspend fun addPhoto(locationId: String, author: String, caption: String, imageUrl: String) {
+        val payload = mapOf(
+            "author" to author,
+            "caption" to caption,
+            "imageUrl" to imageUrl,
+            "timestamp" to System.currentTimeMillis()
+        )
+        photosRef(locationId).add(payload).await()
     }
 }

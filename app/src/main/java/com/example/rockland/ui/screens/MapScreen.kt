@@ -36,12 +36,15 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.LocationOn
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -57,6 +60,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -79,6 +83,7 @@ import com.example.rockland.ui.theme.Rock3
 import com.example.rockland.ui.theme.TextDark
 import com.example.rockland.presentation.viewmodel.CommunityTab
 import com.example.rockland.presentation.viewmodel.MapViewModel
+import com.example.rockland.presentation.viewmodel.UserViewModel
 import coil.compose.AsyncImage
 import com.google.android.gms.maps.CameraUpdateFactory
 import com.google.android.gms.maps.model.LatLng
@@ -92,10 +97,10 @@ import com.google.maps.android.compose.rememberCameraPositionState
 private val RockLocation.coordinates: LatLng
     get() = LatLng(latitude, longitude)
 
-// TODO: Backend - Replace mock rock locations with real API (GET /api/rock-locations)
 @Composable
 fun MapScreen(
     viewModel: MapViewModel = MapViewModel(RockLocationRepository()),
+    userViewModel: UserViewModel? = null,
     onInfoDetailsClick: () -> Unit = {},
     onAddCommentClick: () -> Unit = {}
 ) {
@@ -106,6 +111,7 @@ fun MapScreen(
     val userLocation by viewModel.userLocation.collectAsState()
     val locationError by viewModel.locationError.collectAsState()
     val recenterRequests by viewModel.recenterRequests.collectAsState()
+    val currentUserId by viewModel.currentUserId.collectAsState()
     val infoCardVisible = remember { mutableStateOf(false) }
     val cameraState = rememberCameraPositionState()
     val showDetailsDialog = remember { mutableStateOf(false) }
@@ -123,6 +129,11 @@ fun MapScreen(
     }
 
     LaunchedEffect(Unit) {
+        if (userViewModel != null) {
+            viewModel.awardMessages.collect { msg ->
+                userViewModel.showSuccess(msg)
+            }
+        }
         val fineGranted = ContextCompat.checkSelfPermission(
             context,
             Manifest.permission.ACCESS_FINE_LOCATION
@@ -429,6 +440,7 @@ fun MapScreen(
                         ) {
                             OutlinedButton(
                                 onClick = {
+                                    selectedLocation?.id?.let { viewModel.recordReadRockInfo(it) }
                                     onInfoDetailsClick()
                                     showDetailsDialog.value = true
                                 },
@@ -497,7 +509,10 @@ fun MapScreen(
                             ) {
                                 CommunityContentSection(
                                     tab = activeCommunityTab,
-                                    content = communityContent
+                                    content = communityContent,
+                                    currentUserId = currentUserId,
+                                    onEditComment = { id, text -> viewModel.editComment(id, text) },
+                                    onDeleteComment = { id -> viewModel.deleteComment(id) }
                                 )
                             }
                         }
@@ -676,7 +691,10 @@ private fun TabSelector(
 @Composable
 private fun CommunityContentSection(
     tab: CommunityTab,
-    content: RockCommunityContent
+    content: RockCommunityContent,
+    currentUserId: String?,
+    onEditComment: (String, String) -> Unit,
+    onDeleteComment: (String) -> Unit
 ) {
     Surface(
         modifier = Modifier
@@ -691,7 +709,12 @@ private fun CommunityContentSection(
                 .padding(12.dp)
         ) {
             when (tab) {
-                CommunityTab.COMMENTS -> CommentsSection(content.comments)
+                CommunityTab.COMMENTS -> CommentsSection(
+                    comments = content.comments,
+                    currentUserId = currentUserId,
+                    onEdit = onEditComment,
+                    onDelete = onDeleteComment
+                )
                 CommunityTab.PHOTOS -> PhotosSection(content.photos)
                 CommunityTab.ANNOTATIONS -> AnnotationsSection(content.annotations)
             }
@@ -700,7 +723,15 @@ private fun CommunityContentSection(
 }
 
 @Composable
-private fun CommentsSection(comments: List<RockComment>) {
+private fun CommentsSection(
+    comments: List<RockComment>,
+    currentUserId: String?,
+    onEdit: (String, String) -> Unit,
+    onDelete: (String) -> Unit
+) {
+    val editingCommentId = remember { mutableStateOf<String?>(null) }
+    var editDraft by remember { mutableStateOf("") }
+
     if (comments.isEmpty()) {
         Text(
             text = "No comments yet. Share a quick note about this rock.",
@@ -715,6 +746,8 @@ private fun CommentsSection(comments: List<RockComment>) {
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         comments.forEach { comment ->
+            var menuExpanded by remember(comment.id) { mutableStateOf(false) }
+            val isOwner = comment.userId.isNotBlank() && comment.userId == currentUserId
             Surface(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -727,17 +760,107 @@ private fun CommentsSection(comments: List<RockComment>) {
                         .background(Color.White)
                         .padding(14.dp)
                 ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.Top
+                    ) {
+                        Column(
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text(
+                                text = comment.text,
+                                color = TextDark,
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "- ${comment.author}",
+                                color = TextDark.copy(alpha = 0.6f),
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                        }
+                        if (isOwner) {
+                            Box {
+                                IconButton(onClick = { menuExpanded = true }) {
+                                    Icon(
+                                        imageVector = Icons.Default.MoreVert,
+                                        contentDescription = "More"
+                                    )
+                                }
+                                DropdownMenu(
+                                    expanded = menuExpanded,
+                                    onDismissRequest = { menuExpanded = false }
+                                ) {
+                                    DropdownMenuItem(
+                                        text = { Text("Edit") },
+                                        onClick = {
+                                            menuExpanded = false
+                                            editDraft = comment.text
+                                            editingCommentId.value = comment.id
+                                        }
+                                    )
+                                    DropdownMenuItem(
+                                        text = { Text("Delete") },
+                                        onClick = {
+                                            menuExpanded = false
+                                            onDelete(comment.id)
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if (editingCommentId.value != null) {
+        Dialog(onDismissRequest = { editingCommentId.value = null }) {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = Color.White)
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp)
+                ) {
                     Text(
-                        text = comment.text,
-                        color = TextDark,
-                        style = MaterialTheme.typography.bodyMedium
+                        text = "Edit Comment",
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = TextDark
                     )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = "- ${comment.author}",
-                        color = TextDark.copy(alpha = 0.6f),
-                        style = MaterialTheme.typography.bodySmall
+                    Spacer(modifier = Modifier.height(10.dp))
+                    TextField(
+                        value = editDraft,
+                        onValueChange = { editDraft = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        placeholder = { Text("Update your comment") }
                     )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.End
+                    ) {
+                        TextButton(onClick = { editingCommentId.value = null }) {
+                            Text("Cancel")
+                        }
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Button(
+                            onClick = {
+                                val commentId = editingCommentId.value ?: return@Button
+                                onEdit(commentId, editDraft.trim())
+                                editingCommentId.value = null
+                            },
+                            enabled = editDraft.isNotBlank()
+                        ) {
+                            Text("Save")
+                        }
+                    }
                 }
             }
         }
