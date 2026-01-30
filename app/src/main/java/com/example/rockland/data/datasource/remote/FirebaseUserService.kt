@@ -6,6 +6,17 @@ import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.SetOptions
 import kotlinx.coroutines.tasks.await
 
+// Expert application model for Firestore
+data class ExpertApplication(
+    val status: String = "none",
+    val submittedAt: String = "",
+    val fullName: String = "",
+    val expertise: String = "",
+    val yearsOfExperience: String = "",
+    val portfolioLink: String = "",
+    val notes: String = ""
+)
+
 // User data model for Firestore
 data class UserData(
     val userId: String = "",
@@ -13,13 +24,20 @@ data class UserData(
     val lastName: String = "",
     val email: String = "",
     val joinDate: String = "",
+    val role: String = "nature_enthusiast",
+    val points: Int = 0,
+    val missionsCompleted: Int = 0,
+    val achievementsCompleted: Int = 0,
+    val monthlyPoints: Int = 0,
     val checkins: Int = 0,
     val observations: Int = 0,
     val states: Int = 0,
     val countries: Int = 0,
     val experience: Int = 0,
     val achievements: List<String> = listOf(),
-    val badges: List<String> = listOf()
+    val badges: List<String> = listOf(),
+    val triggerCounts: Map<String, Int> = mapOf(),
+    val expertApplication: ExpertApplication = ExpertApplication()
 )
 
 // Firebase user service (Firestore).

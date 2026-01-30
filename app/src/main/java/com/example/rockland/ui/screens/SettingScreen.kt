@@ -35,7 +35,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.rockland.R
@@ -43,7 +42,6 @@ import com.example.rockland.data.datasource.remote.UserData
 import com.example.rockland.ui.theme.BackgroundDark
 import com.example.rockland.ui.theme.Rock1
 import com.example.rockland.ui.theme.Rock3
-import com.example.rockland.ui.theme.RocklandTheme
 import com.example.rockland.ui.theme.TextDark
 import com.example.rockland.ui.theme.TextLight
 
@@ -196,18 +194,3 @@ private fun SectionHeader(title: String) {
     }
 }
 
-@Preview(showBackground = true)
-@Composable
-fun SettingsScreenPreview() {
-    RocklandTheme {
-        SettingsScreen(
-            userData = UserData(
-                userId = "123",
-                firstName = "test",
-                lastName = "123",
-                email = "test123@example.com",
-                joinDate = "October 07, 2025"
-            )
-        )
-    }
-}
