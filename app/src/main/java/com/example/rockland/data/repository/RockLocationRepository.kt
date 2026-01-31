@@ -1,10 +1,11 @@
 package com.example.rockland.data.repository
 
+import com.example.rockland.data.model.ContentStatus
 import com.example.rockland.data.model.RockAnnotation
 import com.example.rockland.data.model.RockCommunityContent
-import com.example.rockland.data.model.RockComment
+import com.example.rockland.data.model.LocationComment
 import com.example.rockland.data.model.RockLocation
-import com.example.rockland.data.model.RockPhoto
+import com.example.rockland.data.model.LocationPhoto
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Query
 import kotlinx.coroutines.tasks.await
@@ -44,7 +45,8 @@ class RockLocationRepository(
 
     private fun commentsRef(locationId: String) = communityDoc(locationId).collection("comments")
     private fun photosRef(locationId: String) = communityDoc(locationId).collection("photos")
-    private fun annotationsRef(locationId: String) = communityDoc(locationId).collection("annotations")
+    private fun annotationsRef(locationId: String) =
+        communityDoc(locationId).collection("annotations")
 
     suspend fun fetchCommunityContent(locationId: String): RockCommunityContent {
         val commentsSnapshot = commentsRef(locationId)
@@ -60,22 +62,47 @@ class RockLocationRepository(
             .get()
             .await()
 
+
         val comments = commentsSnapshot.documents.map { doc ->
-            RockComment(
-                id = doc.id,
+
+            val status = when (doc.getString("status")) {
+                ContentStatus.PENDING.name -> ContentStatus.PENDING
+                ContentStatus.REJECTED.name -> ContentStatus.REJECTED
+                ContentStatus.APPROVED.name -> ContentStatus.APPROVED
+                else -> ContentStatus.APPROVED
+            }
+
+            LocationComment(
+                commentId = doc.id,
+                locationId = doc.getString("locationId") ?: locationId,
                 userId = doc.getString("userId") ?: "",
                 author = doc.getString("author") ?: "Unknown",
                 text = doc.getString("text") ?: "",
-                timestamp = doc.getLong("timestamp") ?: 0L
+                timestamp = doc.getLong("timestamp") ?: 0L,
+                updatedAt = doc.getLong("updatedAt"),
+
+                //user content moderation
+                status = status,
+                reviewedBy = doc.getString("reviewedBy"),
+                reviewedAt = doc.getLong("reviewedAt")
             )
         }
 
         val photos = photosSnapshot.documents.map { doc ->
-            RockPhoto(
-                id = doc.id,
-                author = doc.getString("author") ?: "Unknown",
+            LocationPhoto(
+                locationPhotoId = doc.id,
+                locationId = doc.getString("locationId") ?: locationId,
+                commentId = doc.getString("commentId"),
+                userId = doc.getString("userId") ?: "",
+                author = doc.getString("author") ?: "Unknown", //change for prod env
                 caption = doc.getString("caption") ?: "",
-                imageUrl = doc.getString("imageUrl") ?: ""
+                imageUrl = doc.getString("imageUrl") ?: "",
+                timestamp = doc.getLong("timestamp") ?: 0L,
+                status = when (doc.getString("status")) {
+                    ContentStatus.PENDING.name -> ContentStatus.PENDING
+                    ContentStatus.REJECTED.name -> ContentStatus.REJECTED
+                    else -> ContentStatus.APPROVED
+                }
             )
         }
 
@@ -94,16 +121,31 @@ class RockLocationRepository(
         )
     }
 
-    suspend fun addComment(locationId: String, userId: String, author: String, text: String) {
+    suspend fun addComment(
+        locationId: String,
+        userId: String,
+        author: String,
+        text: String
+    ): String {
         val payload = mapOf(
+            "locationId" to locationId,
             "userId" to userId,
             "author" to author,
             "text" to text,
-            "timestamp" to System.currentTimeMillis()
+            "timestamp" to System.currentTimeMillis(),
+            // hardcode commentstatus = APPROVED; change once ve/admin user content moderation implemented
+            "status" to ContentStatus.APPROVED.name,
+
+            // user-content moderation null for now
+            "reviewedBy" to null,
+            "reviewedAt" to null
         )
-        commentsRef(locationId).add(payload).await()
+
+        val ref = commentsRef(locationId).add(payload).await()
+        return ref.id
     }
 
+    // removed feature since users should not be allowed to update their comment
     suspend fun updateComment(locationId: String, commentId: String, newText: String) {
         val payload = mapOf(
             "text" to newText,
@@ -116,13 +158,53 @@ class RockLocationRepository(
         commentsRef(locationId).document(commentId).delete().await()
     }
 
-    suspend fun addPhoto(locationId: String, author: String, caption: String, imageUrl: String) {
+    suspend fun deletePhoto(locationId: String, locationPhotoId: String) {
+        photosRef(locationId).document(locationPhotoId).delete().await()
+    }
+
+
+    suspend fun addPhoto(
+        locationId: String,
+        commentId: String?, // allow photos not attached to a comment too
+        userId: String,
+        author: String,
+        caption: String,
+        imageUrl: String
+    ) {
         val payload = mapOf(
+            "locationId" to locationId,
+            "commentId" to commentId,
+            "userId" to userId,
             "author" to author,
             "caption" to caption,
             "imageUrl" to imageUrl,
-            "timestamp" to System.currentTimeMillis()
+            "timestamp" to System.currentTimeMillis(),
+            "status" to ContentStatus.APPROVED.name
         )
         photosRef(locationId).add(payload).await()
     }
+
+    suspend fun addCommentWithPhotos(
+        locationId: String,
+        userId: String,
+        author: String,
+        text: String,
+        photoUrls: List<String>,
+        caption: String = ""
+    ): String {
+
+        val commentId = addComment(locationId, userId, author, text)
+        for (url in photoUrls) {
+            addPhoto(
+                locationId = locationId,
+                commentId = commentId,
+                userId = userId,
+                author = author,
+                caption = caption,
+                imageUrl = url
+            )
+        }
+        return commentId
+    }
 }
+
