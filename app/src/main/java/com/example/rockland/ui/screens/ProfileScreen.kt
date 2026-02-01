@@ -48,28 +48,57 @@ import com.example.rockland.data.datasource.remote.UserData
 import com.example.rockland.ui.theme.Rock1
 import com.example.rockland.ui.theme.Rock3
 import com.example.rockland.ui.theme.TextDark
+import androidx.lifecycle.viewmodel.compose.viewModel
+import com.example.rockland.presentation.viewmodel.UserViewModel
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.LaunchedEffect
+import kotlinx.coroutines.flow.collectLatest
+import com.example.rockland.ui.components.NotificationDialog
+import com.example.rockland.util.TimeFormatter
+import com.example.rockland.data.datasource.remote.ApplicationStatus
 
 // Profile screen component
 @Composable
 fun ProfileScreen(
+    userViewModel: UserViewModel = viewModel(factory = UserViewModel.Factory()),
     userData: UserData? = null,
     onSettingsClick: () -> Unit = {},
     onLogoutClick: () -> Unit = {},
     onBackClick: () -> Unit = {}
 ) {
-    val roleLabel = formatRoleLabel(userData?.role ?: "nature_enthusiast")
-    val points = userData?.points ?: 0
-    val missionsCompleted = userData?.missionsCompleted ?: 0
-    val achievementsCompleted = userData?.achievementsCompleted ?: 0
-    var showExpertDialog by remember { mutableStateOf(false) }
 
-    var fullName by remember {
-        mutableStateOf("${userData?.firstName ?: ""} ${userData?.lastName ?: ""}".trim())
-    }
+    val vmUserData by userViewModel.userData.collectAsState()
+    val effectiveUserData = vmUserData ?: userData
+
+    val roleLabel = formatRoleLabel(effectiveUserData?.role ?: "nature_enthusiast")
+    val points = effectiveUserData?.points ?: 0
+    val missionsCompleted = effectiveUserData?.missionsCompleted ?: 0
+    val achievementsCompleted = effectiveUserData?.achievementsCompleted ?: 0
+    val profileName =
+        "${effectiveUserData?.firstName.orEmpty()} ${effectiveUserData?.lastName.orEmpty()}".trim()
+    val expertApp = effectiveUserData?.expertApplication
+    val isPending = expertApp?.statusEnum == ApplicationStatus.PENDING
+    val applyButtonText = if (isPending) "View Application" else "Apply"
+
+    var applicationFullName by remember(profileName) { mutableStateOf(profileName) }
     var expertise by remember { mutableStateOf("") }
     var yearsOfExp by remember { mutableStateOf("") }
     var portfolioLink by remember { mutableStateOf("") }
     var notes by remember { mutableStateOf("") }
+    var showExpertDialog by remember { mutableStateOf(false) }
+    var showSubmittedDialog by remember { mutableStateOf(false) }
+    var showPendingDialog by remember { mutableStateOf(false) }
+
+
+    // popup for submission of expert application
+    LaunchedEffect(Unit) {
+        userViewModel.expertUiEvents.collectLatest { event ->
+            if (event is UserViewModel.ExpertUiEvent.Submitted) {
+                showSubmittedDialog = true
+                showPendingDialog = false
+            }
+        }
+    }
 
     Column(
         modifier = Modifier
@@ -137,8 +166,11 @@ fun ProfileScreen(
                         .shadow(4.dp, CircleShape),
                     contentAlignment = Alignment.Center
                 ) {
+                    val initials =
+                        "${effectiveUserData?.firstName?.firstOrNull() ?: ""}${effectiveUserData?.lastName?.firstOrNull() ?: ""}"
+
                     Text(
-                        text = "${userData?.firstName?.firstOrNull() ?: ""}${userData?.lastName?.firstOrNull() ?: ""}",
+                        text = initials,
                         fontSize = 32.sp,
                         fontWeight = FontWeight.Bold,
                         color = TextDark
@@ -149,7 +181,7 @@ fun ProfileScreen(
 
                 // User name
                 Text(
-                    text = fullName,
+                    text = profileName,
                     fontSize = 24.sp,
                     fontWeight = FontWeight.ExtraBold,
                     color = TextDark,
@@ -175,7 +207,7 @@ fun ProfileScreen(
 
                 // Join date
                 Text(
-                    text = "${stringResource(R.string.joined)} ${userData?.joinDate ?: ""}",
+                    text = "${stringResource(R.string.joined)} ${effectiveUserData?.joinDate ?: ""}",
                     fontSize = 14.sp,
                     color = TextDark.copy(alpha = 0.7f)
                 )
@@ -267,13 +299,19 @@ fun ProfileScreen(
                 Spacer(modifier = Modifier.height(14.dp))
 
                 Button(
-                    onClick = { showExpertDialog = true },
+                    onClick = {
+                        if (isPending) {
+                            showPendingDialog = true
+                        } else {
+                            showExpertDialog = true
+                        }
+                    },
                     modifier = Modifier.align(Alignment.CenterHorizontally),
                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE8D2B5)),
                     shape = RoundedCornerShape(12.dp)
                 ) {
                     Text(
-                        text = "Apply",
+                        text = applyButtonText,
                         fontWeight = FontWeight.SemiBold,
                         color = Color(0xFF1E1E1E)
                     )
@@ -305,25 +343,65 @@ fun ProfileScreen(
         Spacer(modifier = Modifier.height(56.dp))
     }
 
+    if (showSubmittedDialog) {
+        NotificationDialog(
+            title = "Application Sent",
+            message = "Your Verified Expert Application has been sent! Please give admins some time to verify your application.",
+            onDismiss = { showSubmittedDialog = false },
+            isSuccess = true
+        )
+    }
+
     if (showExpertDialog) {
         VerifiedExpertDialog(
-            fullName = fullName,
+            fullName = applicationFullName,
             expertise = expertise,
             yearsOfExp = yearsOfExp,
             portfolioLink = portfolioLink,
             notes = notes,
-            onFullNameChange = { fullName = it },
+            onFullNameChange = { applicationFullName = it },
             onExpertiseChange = { expertise = it },
             onYearsChange = { yearsOfExp = it },
             onPortfolioChange = { portfolioLink = it },
             onNotesChange = { notes = it },
             onDismiss = { showExpertDialog = false },
-            onSubmit = { showExpertDialog = false }
+            onSubmit = {
+                userViewModel.submitExpertApplication(
+                    fullName = applicationFullName,
+                    expertise = expertise,
+                    yearsOfExperience = yearsOfExp,
+                    portfolioLink = portfolioLink,
+                    notes = notes
+                )
+                showExpertDialog = false
+            }
+
+        )
+    }
+    // if user has already sent an expert application, they will get a popup that shows information that has alr been submitted.
+    if (showPendingDialog && expertApp != null) {
+        val submittedAtText =
+            expertApp.submittedAt?.toDate()?.time?.let(TimeFormatter::formatLocal) ?: "—"
+
+        NotificationDialog(
+            title = "Application Under Review",
+            message = """
+Your Verified Expert Application is undergoing verification! Please check again at a later time.
+
+Submitted details:
+• Full Name: ${expertApp.fullName}
+• Expertise: ${expertApp.expertise}
+• Years of Experience: ${expertApp.yearsOfExperience}
+• Portfolio: ${expertApp.portfolioLink}
+• Submitted at: $submittedAtText
+        """.trimIndent(),
+            onDismiss = { showPendingDialog = false },
+            isSuccess = true
         )
     }
 }
 
-@Composable
+    @Composable
 private fun SummaryStatItem(
     modifier: Modifier = Modifier,
     value: String,
@@ -347,7 +425,9 @@ private fun SummaryStatItem(
             fontSize = 12.sp,
             color = TextDark.copy(alpha = 0.7f)
         )
+
     }
+
 }
 
 private fun formatRoleLabel(role: String): String {
@@ -374,6 +454,13 @@ private fun VerifiedExpertDialog(
     onDismiss: () -> Unit,
     onSubmit: () -> Unit
 ) {
+    val fullNameError = fullName.isBlank()
+    val expertiseError = expertise.isBlank()
+    val yearsError = yearsOfExp.isBlank() || yearsOfExp.toIntOrNull() == null
+    val portfolioError = portfolioLink.isBlank()
+
+    val isFormValid = !fullNameError && !expertiseError && !yearsError && !portfolioError
+
     BasicAlertDialog(onDismissRequest = onDismiss) {
         Card(
             modifier = Modifier.fillMaxWidth(),
@@ -397,8 +484,10 @@ private fun VerifiedExpertDialog(
                 OutlinedTextField(
                     value = fullName,
                     onValueChange = onFullNameChange,
-                    label = { Text("Full name") },
-                    modifier = Modifier.fillMaxWidth()
+                    label = { Text("Full Name (Required)") },
+                    isError = fullNameError,
+                    modifier = Modifier.fillMaxWidth(),
+                    supportingText = { if (fullNameError) Text("Required") }
                 )
 
                 Spacer(modifier = Modifier.height(8.dp))
@@ -406,8 +495,10 @@ private fun VerifiedExpertDialog(
                 OutlinedTextField(
                     value = expertise,
                     onValueChange = onExpertiseChange,
-                    label = { Text("Expertise area") },
-                    modifier = Modifier.fillMaxWidth()
+                    label = { Text("Area of Expertise (Required)") },
+                    isError = expertiseError,
+                    modifier = Modifier.fillMaxWidth(),
+                    supportingText = { if (expertiseError) Text("Required") }
                 )
 
                 Spacer(modifier = Modifier.height(8.dp))
@@ -415,8 +506,12 @@ private fun VerifiedExpertDialog(
                 OutlinedTextField(
                     value = yearsOfExp,
                     onValueChange = onYearsChange,
-                    label = { Text("Years of experience") },
-                    modifier = Modifier.fillMaxWidth()
+                    label = { Text("Years of experience (Required)") },
+                    isError = yearsError,
+                    modifier = Modifier.fillMaxWidth(),
+                    supportingText = {
+                        if (yearsError) Text(if (yearsOfExp.isBlank()) "Required" else "Must be a number")
+                    }
                 )
 
                 Spacer(modifier = Modifier.height(8.dp))
@@ -424,8 +519,10 @@ private fun VerifiedExpertDialog(
                 OutlinedTextField(
                     value = portfolioLink,
                     onValueChange = onPortfolioChange,
-                    label = { Text("Portfolio link (optional)") },
-                    modifier = Modifier.fillMaxWidth()
+                    label = { Text("Portfolio Link (Required)") },
+                    isError = portfolioError,
+                    modifier = Modifier.fillMaxWidth(),
+                    supportingText = { if (portfolioError) Text("Required") }
                 )
 
                 Spacer(modifier = Modifier.height(8.dp))
@@ -446,9 +543,10 @@ private fun VerifiedExpertDialog(
                     Button(
                         onClick = onSubmit,
                         colors = ButtonDefaults.buttonColors(containerColor = Rock1),
-                        shape = RoundedCornerShape(10.dp)
+                        shape = RoundedCornerShape(10.dp),
+                        enabled = isFormValid,
                     ) {
-                        Text(text = "Submit")
+                        Text("Submit")
                     }
                 }
             }
