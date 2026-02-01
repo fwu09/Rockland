@@ -157,7 +157,7 @@ fun CollectionDetailScreen(
                 Tab(
                     selected = selectedTab == 1,
                     onClick = { selectedTab = 1 },
-                    text = { Text("Note Details") }
+                    text = { Text("Personal Notes") }
                 )
             }
 
@@ -356,7 +356,7 @@ private fun NoteDetailsTab(
                 .height(48.dp),
             colors = ButtonDefaults.buttonColors(containerColor = Rock1)
         ) {
-            Text(text = "Click to add more details", fontWeight = FontWeight.Medium)
+            Text(text = "Click here to jot down your notes!", fontWeight = FontWeight.Medium)
         }
     }
 }
@@ -416,7 +416,7 @@ private fun EditNotesSheet(
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     Text(
-                        text = "Notes Details",
+                        text = "Personal Notes about " + item.rockName,
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.SemiBold
                     )
@@ -428,20 +428,13 @@ private fun EditNotesSheet(
                 Spacer(modifier = Modifier.height(8.dp))
 
                 OutlinedTextField(
-                    value = customId,
-                    onValueChange = { customId = it },
-                    label = { Text("ID") },
-                    modifier = Modifier.fillMaxWidth()
-                )
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                OutlinedTextField(
-                    value = item.rockName,
-                    onValueChange = {},
-                    label = { Text("Rock Name (read only)") },
-                    enabled = false,
-                    modifier = Modifier.fillMaxWidth()
+                    value = notes,
+                    onValueChange = { notes = it },
+                    label = { Text("Notes") },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(120.dp),
+                    maxLines = 5
                 )
 
                 Spacer(modifier = Modifier.height(8.dp))
@@ -500,27 +493,6 @@ private fun EditNotesSheet(
                         Text(text = "+", fontSize = 24.sp)
                     }
                 }
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                OutlinedTextField(
-                    value = location,
-                    onValueChange = { location = it },
-                    label = { Text("Location") },
-                    modifier = Modifier.fillMaxWidth()
-                )
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                OutlinedTextField(
-                    value = notes,
-                    onValueChange = { notes = it },
-                    label = { Text("Notes") },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(120.dp),
-                    maxLines = 5
-                )
 
                 Spacer(modifier = Modifier.height(16.dp))
 

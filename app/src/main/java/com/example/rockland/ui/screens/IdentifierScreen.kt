@@ -18,10 +18,10 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
+// import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
-import androidx.compose.foundation.layout.fillMaxHeight
+//import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -85,6 +85,17 @@ import java.io.BufferedReader
 import java.io.InputStreamReader
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
+import android.content.ContentValues
+//import androidx.compose.runtime.collectAsState
+import com.example.rockland.ui.components.TopBannerHost
+//import androidx.compose.runtime.mutableStateOf
+//import androidx.compose.runtime.remember
+//import androidx.compose.runtime.getValue
+//import androidx.compose.runtime.setValue
+//import androidx.compose.runtime.LaunchedEffect
+import com.example.rockland.presentation.model.UiBanner
+//import com.example.rockland.ui.components.TopBannerHost
+
 
 private enum class AddState { Idle, Adding, Added }
 
@@ -193,6 +204,7 @@ class RockClassifier(private val context: Context) {
         buffer.rewind()
         return buffer
     }
+
 }
 
 // ---------------------------------------------------------------------
@@ -242,9 +254,14 @@ fun IdentifierScreen(
             }
             is ScanUiState.LoadingAsset -> {
                 try {
+                    // 1. run classifier
                     val (label, confidence) = classifier.classifyAsset(s.assetPath)
+
+                    // 2. Create a REAL Uri by copying the asset image into MediaStore
+                    val savedUri = saveAssetImageToMediaStore(context, s.assetPath)
+
                     uiState = ScanUiState.Success(
-                        imageUri = Uri.EMPTY,
+                        imageUri = savedUri ?: Uri.EMPTY,
                         rockName = label,
                         confidence = confidence
                     )
@@ -254,50 +271,60 @@ fun IdentifierScreen(
                     )
                 }
             }
+
             else -> Unit
         }
     }
 
-    when (val state = uiState) {
-        is ScanUiState.Idle -> {
-            IdentifierHome(
-                onImageSelected = { uri ->
-                    uiState = ScanUiState.Loading(uri)
-                },
-                onSampleAssetSelected = { assetPath ->
-                    uiState = ScanUiState.LoadingAsset(assetPath)
-                }
-            )
-        }
+    var bannerState by remember { mutableStateOf<UiBanner?>(null) }
 
-        is ScanUiState.Loading -> {
-            IdentifierLoadingScreen()
+    LaunchedEffect(Unit) {
+        userViewModel.banners.collect { banner ->
+            bannerState = banner
         }
+    }
 
-        is ScanUiState.LoadingAsset -> {
-            IdentifierLoadingScreen()
-        }
+    Box(modifier = Modifier.fillMaxSize()) {
 
-        is ScanUiState.Success -> {
-            IdentifierResultScreen(
-                imageUri = state.imageUri,
-                rockKey = state.rockName,
-                rockName = state.rockName,
-                confidence = state.confidence,
-                onScanAgain = {
-                    uiState = ScanUiState.Idle
-                },
-                userViewModel = userViewModel
-            )
-        }
+        TopBannerHost(
+            banner = bannerState,
+            onDismiss = { bannerState = null },
+            modifier = Modifier.align(Alignment.TopCenter)
+        )
 
-        is ScanUiState.Error -> {
-            IdentifierErrorScreen(
-                message = state.message,
-                onRetry = {
-                    uiState = ScanUiState.Idle
-                }
-            )
+        when (val state = uiState) {
+            is ScanUiState.Idle -> {
+                IdentifierHome(
+                    onImageSelected = { uri -> uiState = ScanUiState.Loading(uri) },
+                    onSampleAssetSelected = { assetPath -> uiState = ScanUiState.LoadingAsset(assetPath) }
+                )
+            }
+
+            is ScanUiState.Loading -> {
+                IdentifierLoadingScreen()
+            }
+
+            is ScanUiState.LoadingAsset -> {
+                IdentifierLoadingScreen()
+            }
+
+            is ScanUiState.Success -> {
+                IdentifierResultScreen(
+                    imageUri = state.imageUri,
+                    rockKey = state.rockName,
+                    rockName = state.rockName,
+                    confidence = state.confidence,
+                    onScanAgain = { uiState = ScanUiState.Idle },
+                    userViewModel = userViewModel
+                )
+            }
+
+            is ScanUiState.Error -> {
+                IdentifierErrorScreen(
+                    message = state.message,
+                    onRetry = { uiState = ScanUiState.Idle }
+                )
+            }
         }
     }
 }
@@ -324,12 +351,18 @@ fun IdentifierHome(
         uri?.let { onImageSelected(it) }
     }
 
-
     val cameraLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.TakePicturePreview()
-    ) { _ ->
-        // TODO: Save bitmap to file/Uri and call onImageSelected.
+        ActivityResultContracts.TakePicturePreview()
+    ) { bitmap ->
+        bitmap?.let {
+            val uri = saveBitmapToMediaStore(context, it)
+            if (uri != null) {
+                onImageSelected(uri)
+            }
+        }
     }
+
+
 
     Box(
         modifier = Modifier
@@ -342,127 +375,127 @@ fun IdentifierHome(
                 .padding(16.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-        Text(
-            text = "RockLand Scanner",
-            fontSize = 20.sp,
-            color = TextDark,
-            fontWeight = FontWeight.SemiBold,
-            modifier = Modifier.padding(bottom = 16.dp, top = 8.dp)
-        )
-
-        Box(
-            modifier = Modifier
-                .weight(1f)
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(32.dp))
-                .background(Rock3)
-        ) {
-            // Fill image for the scan panel (not the whole page background).
-            AsyncImage(
-                model = "file:///android_asset/scanner_background.jpg",
-                contentDescription = null,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .alpha(0.32f),
-                contentScale = ContentScale.Crop
-            )
-
-            Column(
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .padding(bottom = 32.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                Text(
-                    text = "Click to Scan",
-                    color = TextDark,
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.Medium,
-                    modifier = Modifier.padding(bottom = 16.dp)
-                )
-
-                Button(
-                    onClick = { cameraLauncher.launch(null) },
-                    modifier = Modifier.size(80.dp),
-                    shape = CircleShape,
-                    colors = ButtonDefaults.buttonColors(containerColor = Rock1),
-                    elevation = ButtonDefaults.buttonElevation(8.dp),
-                    contentPadding = PaddingValues(0.dp)
-                ) {
-                    Icon(
-                        Icons.Default.PhotoCamera,
-                        contentDescription = "Scan",
-                        tint = Color.White,
-                        modifier = Modifier.size(36.dp)
-                    )
-                }
-            }
-        }
-
-        Spacer(modifier = Modifier.height(24.dp))
-
-        OutlinedButton(
-            onClick = {
-                galleryLauncher.launch(
-                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                )
-            },
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(56.dp),
-            shape = RoundedCornerShape(28.dp),
-            colors = ButtonDefaults.outlinedButtonColors(contentColor = TextDark),
-            border = androidx.compose.foundation.BorderStroke(1.5.dp, TextDark)
-        ) {
-            Icon(
-                Icons.Default.PhotoLibrary,
-                contentDescription = null,
-                modifier = Modifier.padding(end = 12.dp)
-            )
             Text(
-                text = "Upload from Gallery",
-                fontSize = 16.sp,
-                fontWeight = FontWeight.SemiBold
+                text = "RockLand Scanner",
+                fontSize = 20.sp,
+                color = TextDark,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.padding(bottom = 16.dp, top = 8.dp)
             )
-        }
 
-        // Debug helper: choose a sample image from app assets to run the model without emulator gallery setup.
-        if (isDebuggable && sampleImages.isNotEmpty()) {
-            Spacer(modifier = Modifier.height(12.dp))
-
-            Box(modifier = Modifier.fillMaxWidth()) {
-                OutlinedButton(
-                    onClick = { sampleMenuExpanded = true },
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(32.dp))
+                    .background(Rock3)
+            ) {
+                // Fill image for the scan panel (not the whole page background).
+                AsyncImage(
+                    model = "file:///android_asset/scanner_background.jpg",
+                    contentDescription = null,
                     modifier = Modifier
-                        .fillMaxWidth()
-                        .height(56.dp),
-                    shape = RoundedCornerShape(28.dp),
-                    colors = ButtonDefaults.outlinedButtonColors(contentColor = TextDark),
-                    border = androidx.compose.foundation.BorderStroke(1.5.dp, TextDark)
+                        .fillMaxSize()
+                        .alpha(0.32f),
+                    contentScale = ContentScale.Crop
+                )
+
+                Column(
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(bottom = 32.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     Text(
-                        text = "Use Sample Image",
+                        text = "Click to Scan",
+                        color = TextDark,
                         fontSize = 16.sp,
-                        fontWeight = FontWeight.SemiBold
+                        fontWeight = FontWeight.Medium,
+                        modifier = Modifier.padding(bottom = 16.dp)
                     )
-                }
 
-                DropdownMenu(
-                    expanded = sampleMenuExpanded,
-                    onDismissRequest = { sampleMenuExpanded = false }
-                ) {
-                    sampleImages.sorted().forEach { name ->
-                        DropdownMenuItem(
-                            text = { Text(name) },
-                            onClick = {
-                                sampleMenuExpanded = false
-                                onSampleAssetSelected("test_images/$name")
-                            }
+                    Button(
+                        onClick = { cameraLauncher.launch(null) },
+                        modifier = Modifier.size(80.dp),
+                        shape = CircleShape,
+                        colors = ButtonDefaults.buttonColors(containerColor = Rock1),
+                        elevation = ButtonDefaults.buttonElevation(8.dp),
+                        contentPadding = PaddingValues(0.dp)
+                    ) {
+                        Icon(
+                            Icons.Default.PhotoCamera,
+                            contentDescription = "Scan",
+                            tint = Color.White,
+                            modifier = Modifier.size(36.dp)
                         )
                     }
                 }
             }
-        }
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            OutlinedButton(
+                onClick = {
+                    galleryLauncher.launch(
+                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                    )
+                },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(56.dp),
+                shape = RoundedCornerShape(28.dp),
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = TextDark),
+                border = androidx.compose.foundation.BorderStroke(1.5.dp, TextDark)
+            ) {
+                Icon(
+                    Icons.Default.PhotoLibrary,
+                    contentDescription = null,
+                    modifier = Modifier.padding(end = 12.dp)
+                )
+                Text(
+                    text = "Upload from Gallery",
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+
+            // Debug helper: choose a sample image from app assets to run the model without emulator gallery setup.
+            if (isDebuggable && sampleImages.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(12.dp))
+
+                Box(modifier = Modifier.fillMaxWidth()) {
+                    OutlinedButton(
+                        onClick = { sampleMenuExpanded = true },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(56.dp),
+                        shape = RoundedCornerShape(28.dp),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = TextDark),
+                        border = androidx.compose.foundation.BorderStroke(1.5.dp, TextDark)
+                    ) {
+                        Text(
+                            text = "Use Sample Image",
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+
+                    DropdownMenu(
+                        expanded = sampleMenuExpanded,
+                        onDismissRequest = { sampleMenuExpanded = false }
+                    ) {
+                        sampleImages.sorted().forEach { name ->
+                            DropdownMenuItem(
+                                text = { Text(name) },
+                                onClick = {
+                                    sampleMenuExpanded = false
+                                    onSampleAssetSelected("test_images/$name")
+                                }
+                            )
+                        }
+                    }
+                }
+            }
 
 
             Spacer(modifier = Modifier.height(8.dp))
@@ -534,8 +567,45 @@ fun IdentifierErrorScreen(message: String, onRetry: () -> Unit) {
     }
 }
 
-// Result screen shown after a rock has been identified.
+// adds image of the rock from rock identifier into user's personal collection
+private fun saveBitmapToMediaStore(
+    context: Context,
+    bitmap: Bitmap
+): Uri? {
+    val contentValues = ContentValues().apply {
+        put(MediaStore.Images.Media.DISPLAY_NAME, "scan_${System.currentTimeMillis()}.jpg")
+        put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg")
+    }
 
+    val uri = context.contentResolver.insert(
+        MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+        contentValues
+    )
+
+    uri?.let {
+        context.contentResolver.openOutputStream(it)?.use { out ->
+            bitmap.compress(Bitmap.CompressFormat.JPEG, 95, out)
+        }
+    }
+
+    return uri
+}
+
+// fix issue of assets/sample images not working
+private fun saveAssetImageToMediaStore(context: Context, assetPath: String): Uri? {
+    return try {
+        val bitmap = context.assets.open(assetPath).use { input ->
+            BitmapFactory.decodeStream(input)
+        } ?: return null
+
+        saveBitmapToMediaStore(context, bitmap)
+    } catch (e: Exception) {
+        null
+    }
+}
+
+
+// Result screen shown after a rock has been identified.
 @Composable
 fun IdentifierResultScreen(
     imageUri: Uri,
@@ -548,7 +618,7 @@ fun IdentifierResultScreen(
 ) {
     // ---------- Firestore state ----------
     val db = Firebase.firestore
-
+    val context = androidx.compose.ui.platform.LocalContext.current
     // `collectionRockId` is what we will store in user's collection as the stable identifier.
     // Prefer numeric `rockID` from Firestore when available.
     var collectionRockId by remember(rockKey) { mutableStateOf(rockKey.trim().lowercase()) }
@@ -562,6 +632,7 @@ fun IdentifierResultScreen(
     var errorMsg by remember { mutableStateOf<String?>(null) }
     var addState by remember { mutableStateOf(AddState.Idle) }
     var pendingAddRockId by remember { mutableStateOf<String?>(null) }
+
     // Fetch rock details whenever the detected name changes
     LaunchedEffect(rockName) {
         isLoading = true
@@ -627,6 +698,13 @@ fun IdentifierResultScreen(
             }
         }
     }
+
+    // for image upload for rocks already in collection from scan
+    val alreadyInCollection =
+        collectionViewModel.uiState.value.items.any { item ->
+            item.rockId == collectionRockId ||
+                    item.rockName.equals(rockName, ignoreCase = true)
+        }
 
     // ---------- UI ----------
     Column(
@@ -780,62 +858,109 @@ fun IdentifierResultScreen(
 
         Spacer(modifier = Modifier.height(24.dp))
 
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(56.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
+
+            // 1) Add to Collection (or disabled “You already have this Rock!”)
             Button(
                 onClick = {
+                    if (alreadyInCollection) {
+                        userViewModel.showInfo("Already in your collection.")
+                        return@Button
+                    }
+
                     when (addState) {
                         AddState.Added -> userViewModel.showInfo("Already in your collection.")
                         AddState.Adding -> userViewModel.showInfo("Adding to collection...")
                         AddState.Idle -> {
                             pendingAddRockId = collectionRockId
                             addState = AddState.Adding
-                            collectionViewModel.addRockFromIdentification(
+                            collectionViewModel.addCapturedImageToPersonalNotesFromIdentification(
                                 rockId = collectionRockId,
                                 rockName = rockName,
-                                thumbnailUrl = rockImageUrl
+                                rockSource = "identify",
+                                thumbnailUrl = rockImageUrl,
+                                imageUri = if (imageUri != Uri.EMPTY) imageUri else null,
+                                context = context
                             )
                         }
                     }
                 },
+                enabled = !alreadyInCollection && addState != AddState.Adding,
                 modifier = Modifier
-                    .weight(1f)
-                    .fillMaxHeight(),
+                    .fillMaxWidth()
+                    .height(56.dp),
                 shape = RoundedCornerShape(28.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = Rock1.copy(alpha = 0.9f))
             ) {
                 Text(
-                    text = when (addState) {
-                        AddState.Added -> "Added"
-                        AddState.Adding -> "Adding..."
-                        AddState.Idle -> "Add to Collection"
+                    text = when {
+                        alreadyInCollection -> "You already have this Rock!"
+                        addState == AddState.Added -> "Added"
+                        addState == AddState.Adding -> "Adding..."
+                        else -> "Add to Collection"
                     },
                     fontSize = 14.sp,
                     fontWeight = FontWeight.Bold
                 )
             }
 
-            Button(
-                onClick = onScanAgain,
+            // 2) Add Image of Rock into Collection Entry
+            OutlinedButton(
+                onClick = {
+                    val uriToUpload = if (imageUri != Uri.EMPTY) imageUri else null
+                    if (uriToUpload == null) {
+                        userViewModel.showError("No image to save. Please scan with the camera or upload from gallery.")
+                        return@OutlinedButton
+                    }
+                    android.util.Log.d("AddImageBtn", "clicked: rockId=$collectionRockId imageUri=$imageUri")
+                    collectionViewModel.addCapturedImageToPersonalNotesFromIdentification(
+                        rockId = collectionRockId,
+                        rockName = rockName,
+                        rockSource = "identify",
+                        thumbnailUrl = rockImageUrl,
+                        imageUri = uriToUpload,
+                        context = context
+                    ) }
+                ,
                 modifier = Modifier
-                    .weight(1f)
-                    .fillMaxHeight(),
+                    .fillMaxWidth()
+                    .height(56.dp),
                 shape = RoundedCornerShape(28.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = Rock1)
             ) {
-                Text(
-                    text = "Scan Again",
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Bold
-                )
+                Text("Add Image of Rock into Collection Entry", fontSize = 14.sp, fontWeight = FontWeight.Bold)
+            }
+
+            // 3) Suspect an Error? (red)
+            OutlinedButton(
+                onClick = {
+                    userViewModel.showInfo("<<insert popup window for reporting of rock identification errors>>")
+                },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(56.dp),
+                shape = RoundedCornerShape(28.dp),
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.Red),
+                border = androidx.compose.foundation.BorderStroke(1.dp, Color.Red)
+            ) {
+                Text("Suspect an Error?", fontSize = 14.sp, fontWeight = FontWeight.Bold)
+            }
+
+            // 4) Scan Again
+            Button(
+                onClick = onScanAgain,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(56.dp),
+                shape = RoundedCornerShape(28.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = Rock1)
+            ) {
+                Text("Scan Again", fontSize = 14.sp, fontWeight = FontWeight.Bold)
             }
         }
-
-        Spacer(modifier = Modifier.height(8.dp))
     }
 }
 
