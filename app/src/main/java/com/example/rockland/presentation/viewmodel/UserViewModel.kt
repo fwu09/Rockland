@@ -8,7 +8,6 @@ import com.example.rockland.data.auth.AuthRepository
 import com.example.rockland.data.auth.AuthResult
 import com.example.rockland.data.auth.FirebaseAuthRepository
 import com.example.rockland.data.auth.toUiMessage
-import com.example.rockland.data.datasource.remote.FirebaseUserService
 import com.example.rockland.data.datasource.remote.UserData
 import com.example.rockland.presentation.model.UiBanner
 import com.example.rockland.presentation.model.UiBannerType
@@ -22,16 +21,25 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.SharingStarted
+import com.example.rockland.data.repository.UserProfileRepository
 
 // Manages Firebase auth flows, profile loading, and banners for the UI.
 class UserViewModel(
     private val authRepository: AuthRepository = FirebaseAuthRepository.getInstance(),
-    private val userService: FirebaseUserService = FirebaseUserService.getInstance()
+    private val userRepo: UserProfileRepository = UserProfileRepository()
 ) : ViewModel() {
 
     // Banner messages the UI collects to show alerts.
     private val _banners = MutableSharedFlow<UiBanner>(extraBufferCapacity = 1)
     val banners = _banners.asSharedFlow()
+
+    // banner message for submission of expert application
+    sealed class ExpertUiEvent {
+        object Submitted : ExpertUiEvent()
+    }
+
+    private val _expertUiEvents = MutableSharedFlow<ExpertUiEvent>(extraBufferCapacity = 1)
+    val expertUiEvents = _expertUiEvents.asSharedFlow()
 
     // Stored profile data for Compose screens.
     private val _userData = MutableStateFlow<UserData?>(null)
@@ -60,7 +68,7 @@ class UserViewModel(
                     // Only load user data if we don't have it already
                     if (_userData.value == null || _userData.value?.userId != user.uid) {
                         try {
-                            val userData = userService.getUserProfile(user.uid)
+                            val userData = userRepo.getUserProfile(user.uid)
                             _userData.value = userData
                             android.util.Log.d(
                                 "UserViewModel",
@@ -95,7 +103,7 @@ class UserViewModel(
                         val user = auth.value
                         android.util.Log.d("UserViewModel", "Auth user created, uid: ${user.uid}")
 
-                        userService.createUserProfile(user, firstName, lastName)
+                        userRepo.createUserProfile(user, firstName, lastName)
                         android.util.Log.d("UserViewModel", "Firestore profile created")
 
                         showSuccess("Registration successful!")
@@ -154,7 +162,7 @@ class UserViewModel(
             try {
                 _isLoading.value = true
 
-                val data = userService.getUserProfile(userId)
+                val data = userRepo.getUserProfile(userId)
                 _userData.value = data
             } catch (e: Exception) {
                 showError(e.message ?: "Failed to load user data.")
@@ -177,7 +185,7 @@ class UserViewModel(
                     "lastName" to lastName
                 )
 
-                userService.updateUserProfile(userId, updates)
+                userRepo.updateUserProfile(userId, updates)
                 loadUserData(userId)
                 showSuccess("Profile updated.")
             } catch (e: Exception) {
@@ -207,6 +215,57 @@ class UserViewModel(
                 return UserViewModel() as T
             }
             throw IllegalArgumentException("Unknown ViewModel class")
+        }
+    }
+
+    //  submit expert application
+    fun submitExpertApplication(
+        fullName: String,
+        expertise: String,
+        yearsOfExperience: String,
+        portfolioLink: String,
+        notes: String
+    ) {
+        val userId = currentUser.value?.uid
+        if (userId == null) {
+            showError("You're not logged in. Please sign in again.")
+            return
+        }
+
+        // input validation
+        if (fullName.isBlank() || expertise.isBlank() || yearsOfExperience.isBlank() || portfolioLink.isBlank()) {
+            showError("Please fill in all required fields.")
+            return
+        }
+        if (yearsOfExperience.toIntOrNull() == null) {
+            showError("Years of experience must be a number.")
+            return
+        }
+
+        viewModelScope.launch {
+            try {
+                _isLoading.value = true
+
+                userRepo.submitExpertApplication(
+                    userId = userId,
+                    fullName = fullName,
+                    expertise = expertise,
+                    yearsOfExperience = yearsOfExperience,
+                    portfolioLink = portfolioLink,
+                    notes = notes
+                )
+
+                // refresh local cached profile
+                val updated = userRepo.getUserProfile(userId)
+                _userData.value = updated
+                _expertUiEvents.tryEmit(ExpertUiEvent.Submitted)
+
+                showSuccess("Application submitted!")
+            } catch (e: Exception) {
+                showError(e.message ?: "Failed to submit application.")
+            } finally {
+                _isLoading.value = false
+            }
         }
     }
 }

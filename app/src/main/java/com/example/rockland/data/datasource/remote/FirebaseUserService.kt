@@ -5,17 +5,34 @@ import com.google.firebase.auth.FirebaseUser
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.SetOptions
 import kotlinx.coroutines.tasks.await
+import com.google.firebase.Timestamp
+import com.google.firebase.firestore.Exclude
 
-// Expert application model for Firestore
+// expert application status
+enum class ApplicationStatus {
+    NONE,
+    PENDING,
+    APPROVED,
+    REJECTED
+}
+
+// ne -> ve: verified expert application
 data class ExpertApplication(
-    val status: String = "none",
-    val submittedAt: String = "",
+    val status: String = ApplicationStatus.NONE.name,
+    val submittedAt: Timestamp? = null,
     val fullName: String = "",
     val expertise: String = "",
     val yearsOfExperience: String = "",
     val portfolioLink: String = "",
-    val notes: String = ""
-)
+    val notes: String = "",
+    val reviewedAt: Timestamp? = null,
+    val reviewedBy: String = ""
+) {
+    @get:Exclude
+    val statusEnum: ApplicationStatus
+        get() = runCatching { ApplicationStatus.valueOf(status) }
+            .getOrDefault(ApplicationStatus.NONE)
+}
 
 // User data model for Firestore
 data class UserData(
@@ -112,6 +129,31 @@ class FirebaseUserService {
             }
             return instance!!
         }
+    }
+
+    // submit verified expert application
+    suspend fun submitExpertApplication(
+        userId: String,
+        fullName: String,
+        expertise: String,
+        yearsOfExperience: String,
+        portfolioLink: String,
+        notes: String
+    ) {
+        val application = ExpertApplication(
+            status = ApplicationStatus.PENDING.name,
+            submittedAt = Timestamp.now(),
+            fullName = fullName.trim(),
+            expertise = expertise.trim(),
+            yearsOfExperience = yearsOfExperience.trim(),
+            portfolioLink = portfolioLink.trim(),
+            notes = notes.trim(),
+            reviewedAt = null,
+            reviewedBy = ""
+        )
+
+        val updates = mapOf("expertApplication" to application)
+        usersCollection.document(userId).set(updates, SetOptions.merge()).await()
     }
 }
 
