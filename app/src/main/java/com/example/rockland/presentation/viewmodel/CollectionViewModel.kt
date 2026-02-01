@@ -112,7 +112,9 @@ class CollectionViewModel(
     fun addRockFromIdentification(
         rockId: String,
         rockName: String,
-        thumbnailUrl: String? = null
+        thumbnailUrl: String? = null,
+        capturedImageUri: Uri? = null,
+        context: Context? = null
     ) {
         val userId = currentUserIdOrError() ?: return
         viewModelScope.launch {
@@ -122,19 +124,33 @@ class CollectionViewModel(
                     _events.tryEmit(CollectionEvent.Error("Already in your collection.", rockId = rockId))
                     return@launch
                 }
-                repository.addRockToCollection(
+
+                // 1. creates collection doc and captures new rock itemId
+                val itemId = repository.addRockToCollection(
                     userId = userId,
                     rockId = rockId,
                     rockSource = "identify",
                     rockName = rockName,
                     thumbnailUrl = thumbnailUrl
                 )
-                val triggerResult = awardsRepository.applyTrigger(userId, "collect_rock")
-                triggerResult.messages.firstOrNull()?.let { message ->
-                    _events.tryEmit(CollectionEvent.Success(message))
+
+                // 2. image gets uploaded into user's collection item
+                if (capturedImageUri != null && context != null) {
+                    val uploaded = uploadUserPhotosSuspend(
+                        userId = userId,
+                        itemId = itemId,
+                        uris = listOf(capturedImageUri),
+                        context = context
+                    )
+                    if (uploaded.isNotEmpty()) {
+                        _events.tryEmit(CollectionEvent.Success("Photo saved to Rock Gallery.", rockId = rockId))
+                    }
                 }
+
+                // 3) successful upload + reload
                 _events.tryEmit(CollectionEvent.Success("Added to collection.", rockId = rockId))
                 loadUserCollection(userId)
+
             } catch (e: Exception) {
                 _events.tryEmit(
                     CollectionEvent.Error(
@@ -245,6 +261,93 @@ class CollectionViewModel(
                 _events.tryEmit(CollectionEvent.Error(e.message ?: "Failed to upload photos.", rockId = null))
                 _uiState.value = _uiState.value.copy(
                     errorMessage = e.message ?: "Failed to upload photos."
+                )
+            }
+        }
+    }
+
+    // returns urls and shows error if photo uploadad issue
+    private suspend fun uploadUserPhotosSuspend(
+        userId: String,
+        itemId: String,
+        uris: List<Uri>,
+        context: Context
+    ): List<String> {
+        if (uris.isEmpty()) return emptyList()
+
+        val storageRef = Firebase.storage.reference
+            .child("users")
+            .child(userId)
+            .child("collection")
+            .child(itemId)
+            .child("userPhotos")
+
+        val urls = withContext(Dispatchers.IO) {
+            uris.map { uri ->
+                val fileRef = storageRef.child("${UUID.randomUUID()}.jpg")
+
+                // IMPORTANT: do NOT silently ignore a null stream.
+                val stream = context.contentResolver.openInputStream(uri)
+                    ?: throw IllegalStateException("Cannot open image URI stream: $uri")
+
+                stream.use {
+                    fileRef.putStream(it).await()
+                }
+
+                fileRef.downloadUrl.await().toString()
+            }
+        }
+
+        repository.appendUserImageUrls(userId, itemId, urls)
+        return urls
+    }
+
+    // adds image from identification into personal notes
+    fun addCapturedImageToPersonalNotesFromIdentification(
+        rockId: String,
+        rockName: String,
+        rockSource: String = "identify",
+        thumbnailUrl: String? = null,
+        imageUri: Uri?,
+        context: Context? = null
+    ) {
+        android.util.Log.d("AddImageVM", "start rockId=$rockId uri=$imageUri")
+        val userId = currentUserIdOrError() ?: return
+        if (imageUri == null || context == null) return
+
+        viewModelScope.launch {
+            try {
+                // 1) Find existing entry
+                val existingItemId = repository.findCollectionItemId(userId, rockId, rockName)
+
+                // 2) Create entry if missing
+                val itemId = existingItemId ?: repository.addRockToCollection(
+                    userId = userId,
+                    rockId = rockId,
+                    rockSource = rockSource,
+                    rockName = rockName,
+                    thumbnailUrl = thumbnailUrl
+                )
+
+                // 3) Upload image
+                val uploadedUrls = uploadUserPhotosSuspend(
+                    userId = userId,
+                    itemId = itemId,
+                    uris = listOf(imageUri),
+                    context = context
+                )
+
+                if (uploadedUrls.isNotEmpty()) {
+                    _events.tryEmit(CollectionEvent.Success("Image of $rockName has been saved!.", rockId = rockId))
+                } else {
+                    _events.tryEmit(CollectionEvent.Error("No image uploaded.", rockId = rockId))
+                }
+
+                loadUserCollection(userId)
+                android.util.Log.d("AddImageVM", "uploaded urls=${uploadedUrls.size}")
+            } catch (e: Exception) {
+                _events.tryEmit(
+                    CollectionEvent.Error(e.message ?: "Failed to save image to Personal Notes.", rockId = rockId)
                 )
             }
         }
