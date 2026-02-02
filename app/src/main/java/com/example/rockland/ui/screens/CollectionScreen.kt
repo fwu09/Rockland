@@ -47,6 +47,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -78,10 +79,14 @@ import androidx.compose.ui.window.Dialog
 @Composable
 fun CollectionScreen(
     userViewModel: UserViewModel? = null,
-    viewModel: CollectionViewModel = viewModel()
+    viewModel: CollectionViewModel = viewModel(),
+    selectedTabIndex: Int? = null,
+    onTabSelected: ((Int) -> Unit)? = null
 ) {
     val uiState by viewModel.uiState.collectAsState()
-    val selectedTabIndex = remember { mutableIntStateOf(0) } // 0 = Collections, 1 = Dictionary
+    val internalTabIndex = rememberSaveable { mutableIntStateOf(0) } // 0 = Collections, 1 = Dictionary
+    val currentTab = selectedTabIndex ?: internalTabIndex.intValue
+    val setTab: (Int) -> Unit = onTabSelected ?: { internalTabIndex.intValue = it }
     val selectedItem = remember { mutableStateOf<CollectionItem?>(null) }
 
     // Forward collection events (add/upload/etc.) to the global top banner.
@@ -95,7 +100,7 @@ fun CollectionScreen(
         }
     }
 
-    if (selectedTabIndex.intValue == 0 && selectedItem.value != null) {
+    if (currentTab == 0 && selectedItem.value != null) {
         CollectionDetailScreen(
             item = selectedItem.value!!,
             collectionViewModel = viewModel,
@@ -136,24 +141,24 @@ fun CollectionScreen(
             Spacer(modifier = Modifier.height(12.dp))
 
             TabRow(
-                selectedTabIndex = selectedTabIndex.intValue,
+                selectedTabIndex = currentTab,
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Tab(
-                    selected = selectedTabIndex.intValue == 0,
-                    onClick = { selectedTabIndex.intValue = 0 },
+                    selected = currentTab == 0,
+                    onClick = { setTab(0) },
                     text = { Text("Collections") }
                 )
                 Tab(
-                    selected = selectedTabIndex.intValue == 1,
-                    onClick = { selectedTabIndex.intValue = 1 },
+                    selected = currentTab == 1,
+                    onClick = { setTab(1) },
                     text = { Text("Dictionary") }
                 )
             }
 
             Spacer(modifier = Modifier.height(12.dp))
 
-            when (selectedTabIndex.intValue) {
+            when (currentTab) {
                 0 -> CollectionsTabContent(
                     items = uiState.items,
                     isLoading = uiState.isLoading,
