@@ -63,7 +63,7 @@ class RockLocationRepository(
             .await()
 
 
-        val comments = commentsSnapshot.documents.map { doc ->
+        val comments = commentsSnapshot.documents.mapNotNull { doc ->
 
             val status = when (doc.getString("status")) {
                 ContentStatus.PENDING.name -> ContentStatus.PENDING
@@ -71,6 +71,8 @@ class RockLocationRepository(
                 ContentStatus.APPROVED.name -> ContentStatus.APPROVED
                 else -> ContentStatus.APPROVED
             }
+
+            if (status != ContentStatus.APPROVED) return@mapNotNull null
 
             LocationComment(
                 commentId = doc.id,
@@ -88,7 +90,14 @@ class RockLocationRepository(
             )
         }
 
-        val photos = photosSnapshot.documents.map { doc ->
+        val photos = photosSnapshot.documents.mapNotNull { doc ->
+            val status = when (doc.getString("status")) {
+                ContentStatus.PENDING.name -> ContentStatus.PENDING
+                ContentStatus.REJECTED.name -> ContentStatus.REJECTED
+                else -> ContentStatus.APPROVED
+            }
+            if (status != ContentStatus.APPROVED) return@mapNotNull null
+
             LocationPhoto(
                 locationPhotoId = doc.id,
                 locationId = doc.getString("locationId") ?: locationId,
@@ -98,11 +107,7 @@ class RockLocationRepository(
                 caption = doc.getString("caption") ?: "",
                 imageUrl = doc.getString("imageUrl") ?: "",
                 timestamp = doc.getLong("timestamp") ?: 0L,
-                status = when (doc.getString("status")) {
-                    ContentStatus.PENDING.name -> ContentStatus.PENDING
-                    ContentStatus.REJECTED.name -> ContentStatus.REJECTED
-                    else -> ContentStatus.APPROVED
-                }
+                status = status
             )
         }
 
@@ -133,8 +138,7 @@ class RockLocationRepository(
             "author" to author,
             "text" to text,
             "timestamp" to System.currentTimeMillis(),
-            // hardcode commentstatus = APPROVED; change once ve/admin user content moderation implemented
-            "status" to ContentStatus.APPROVED.name,
+            "status" to ContentStatus.PENDING.name,
 
             // user-content moderation null for now
             "reviewedBy" to null,
@@ -143,15 +147,6 @@ class RockLocationRepository(
 
         val ref = commentsRef(locationId).add(payload).await()
         return ref.id
-    }
-
-    // removed feature since users should not be allowed to update their comment
-    suspend fun updateComment(locationId: String, commentId: String, newText: String) {
-        val payload = mapOf(
-            "text" to newText,
-            "updatedAt" to System.currentTimeMillis()
-        )
-        commentsRef(locationId).document(commentId).update(payload).await()
     }
 
     suspend fun deleteComment(locationId: String, commentId: String) {
@@ -179,7 +174,7 @@ class RockLocationRepository(
             "caption" to caption,
             "imageUrl" to imageUrl,
             "timestamp" to System.currentTimeMillis(),
-            "status" to ContentStatus.APPROVED.name
+            "status" to ContentStatus.PENDING.name
         )
         photosRef(locationId).add(payload).await()
     }

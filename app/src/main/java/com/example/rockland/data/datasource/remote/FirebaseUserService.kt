@@ -95,9 +95,51 @@ class FirebaseUserService {
             android.util.Log.d("FirebaseUserService", "Getting user profile for uid: $userId")
             val document = usersCollection.document(userId).get().await()
             return if (document.exists()) {
-                val userData = document.toObject(UserData::class.java) ?: UserData()
-                android.util.Log.d("FirebaseUserService", "User profile found: $userData")
-                userData
+                val userData = runCatching { document.toObject(UserData::class.java) }.getOrNull()
+                if (userData != null) {
+                    android.util.Log.d("FirebaseUserService", "User profile found: $userData")
+                    userData
+                } else {
+                    android.util.Log.w(
+                        "FirebaseUserService",
+                        "User profile mapping failed for uid: $userId, falling back to safe fields"
+                    )
+                    val achievements = (document.get("achievements") as? List<*>)
+                        ?.filterIsInstance<String>()
+                        ?: emptyList()
+                    val badges = (document.get("badges") as? List<*>)
+                        ?.filterIsInstance<String>()
+                        ?: emptyList()
+                    val triggerCounts = (document.get("triggerCounts") as? Map<*, *>)
+                        ?.mapNotNull { (key, value) ->
+                            val k = key as? String ?: return@mapNotNull null
+                            val v = (value as? Number)?.toInt() ?: return@mapNotNull null
+                            k to v
+                        }
+                        ?.toMap()
+                        ?: emptyMap()
+                    UserData(
+                        userId = document.getString("userId") ?: document.id,
+                        firstName = document.getString("firstName") ?: "",
+                        lastName = document.getString("lastName") ?: "",
+                        email = document.getString("email") ?: "",
+                        joinDate = document.getString("joinDate") ?: "",
+                        role = document.getString("role") ?: "nature_enthusiast",
+                        points = (document.getLong("points") ?: 0L).toInt(),
+                        missionsCompleted = (document.getLong("missionsCompleted") ?: 0L).toInt(),
+                        achievementsCompleted = (document.getLong("achievementsCompleted") ?: 0L).toInt(),
+                        monthlyPoints = (document.getLong("monthlyPoints") ?: 0L).toInt(),
+                        checkins = (document.getLong("checkins") ?: 0L).toInt(),
+                        observations = (document.getLong("observations") ?: 0L).toInt(),
+                        states = (document.getLong("states") ?: 0L).toInt(),
+                        countries = (document.getLong("countries") ?: 0L).toInt(),
+                        experience = (document.getLong("experience") ?: 0L).toInt(),
+                        achievements = achievements,
+                        badges = badges,
+                        triggerCounts = triggerCounts,
+                        expertApplication = ExpertApplication()
+                    )
+                }
             } else {
                 android.util.Log.w(
                     "FirebaseUserService",

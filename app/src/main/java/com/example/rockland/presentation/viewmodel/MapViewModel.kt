@@ -88,6 +88,8 @@ class MapViewModel(
 
     private val _awardMessages = MutableSharedFlow<String>(extraBufferCapacity = 3)
     val awardMessages = _awardMessages
+    private val _submissionMessages = MutableSharedFlow<String>(extraBufferCapacity = 2)
+    val submissionMessages = _submissionMessages
     private val readInfoLocations = mutableSetOf<String>()
 
     init {
@@ -223,6 +225,7 @@ class MapViewModel(
                     result.messages.firstOrNull()?.let { _awardMessages.tryEmit(it) }
                 }
 
+                _submissionMessages.tryEmit("Comment submitted. Waiting for review.")
                 loadCommunityContent(locationId)
             } catch (_: Throwable) {
             } finally {
@@ -239,6 +242,7 @@ class MapViewModel(
         val uri = imageUri ?: return
 
         viewModelScope.launch {
+            _isPosting.value = true
             try {
                 val resolvedAuthor = authorName.value
                 val urls = uploadLocationPhotoUris(context, locationId, uid, listOf(uri))
@@ -253,10 +257,12 @@ class MapViewModel(
                     imageUrl = url
                 )
 
+                _submissionMessages.tryEmit("Photo submitted. Waiting for review.")
                 loadCommunityContent(locationId)
             } catch (t: Throwable) {
                 Log.e("MapUpload", "Upload failed in submitPhoto()", t)
             } finally {
+                _isPosting.value = false
                 hidePhotoForm()
                 _activeCommunityTab.value = CommunityTab.PHOTOS
             }
@@ -273,19 +279,6 @@ class MapViewModel(
         }
     }
 
-    // editComment feature no longer possible
-    fun editComment(commentId: String, newText: String) {
-        val locationId = _selectedLocation.value?.id ?: return
-        viewModelScope.launch {
-            try {
-                repository.updateComment(locationId, commentId, newText)
-                loadCommunityContent(locationId)
-            } catch (_: Throwable) {
-                // Keep UI stable; retry later if needed.
-            }
-        }
-    }
-
     fun deleteComment(commentId: String) {
         val locationId = _selectedLocation.value?.id ?: return
         viewModelScope.launch {
@@ -293,7 +286,6 @@ class MapViewModel(
                 repository.deleteComment(locationId, commentId)
                 loadCommunityContent(locationId)
             } catch (_: Throwable) {
-                // Keep UI stable; retry later if needed.
             }
         }
     }
@@ -326,6 +318,7 @@ class MapViewModel(
         val uid = currentUser.value?.uid ?: return
 
         viewModelScope.launch {
+            _isPosting.value = true
             try {
                 val resolvedAuthor = authorName.value
 
@@ -356,10 +349,12 @@ class MapViewModel(
                     )
                 }
 
+                _submissionMessages.tryEmit("Comment and photos submitted. Waiting for review.")
                 loadCommunityContent(locationId)
             } catch (t: Throwable) {
                 Log.e("MapUpload", "Upload failed in submitCommentWithPhotos()", t)
             } finally {
+                _isPosting.value = false
                 hideCommentForm()
                 _activeCommunityTab.value = CommunityTab.COMMENTS
             }

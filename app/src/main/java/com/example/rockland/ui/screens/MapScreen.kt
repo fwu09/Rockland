@@ -58,6 +58,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -76,7 +77,6 @@ import com.example.rockland.data.model.LocationComment
 import com.example.rockland.data.model.RockCommunityContent
 import com.example.rockland.data.model.RockLocation
 import com.example.rockland.data.model.LocationPhoto
-import com.example.rockland.data.repository.RockLocationRepository
 import com.example.rockland.ui.theme.BackgroundLight
 import com.example.rockland.ui.theme.Rock1
 import com.example.rockland.ui.theme.Rock3
@@ -93,8 +93,9 @@ import com.google.maps.android.compose.MapUiSettings
 import com.google.maps.android.compose.Marker
 import com.google.maps.android.compose.MarkerState
 import com.google.maps.android.compose.rememberCameraPositionState
-import com.example.rockland.util.TimeFormatter
 import androidx.compose.foundation.clickable
+import com.example.rockland.util.TimeFormatter
+import kotlinx.coroutines.launch
 
 private val RockLocation.coordinates: LatLng
     get() = LatLng(latitude, longitude)
@@ -115,11 +116,13 @@ fun MapScreen(
     val locationError by viewModel.locationError.collectAsState()
     val recenterRequests by viewModel.recenterRequests.collectAsState()
     val currentUserId by viewModel.currentUserId.collectAsState()
+    val isPosting by viewModel.isPosting.collectAsState()
     val infoCardVisible = remember { mutableStateOf(false) }
     val cameraState = rememberCameraPositionState()
     val showDetailsDialog = remember { mutableStateOf(false) }
     val sectionScrollState = rememberScrollState()
     val selectedPhotoForDialog = remember { mutableStateOf<LocationPhoto?>(null) }
+    val suppressAwardUntil = remember { mutableLongStateOf(0L) }
 
     // Location permission state
     val hasLocationPermission = remember { mutableStateOf(false) }
@@ -134,8 +137,19 @@ fun MapScreen(
 
     LaunchedEffect(Unit) {
         if (userViewModel != null) {
-            viewModel.awardMessages.collect { msg ->
-                userViewModel.showSuccess(msg)
+            launch {
+                viewModel.awardMessages.collect { msg ->
+                    val now = System.currentTimeMillis()
+                    if (now >= suppressAwardUntil.longValue) {
+                        userViewModel.showSuccess(msg)
+                    }
+                }
+            }
+            launch {
+                viewModel.submissionMessages.collect { msg ->
+                    suppressAwardUntil.longValue = System.currentTimeMillis() + 4500L
+                    userViewModel.showInfo(msg)
+                }
             }
         }
         val fineGranted = ContextCompat.checkSelfPermission(
@@ -409,6 +423,38 @@ fun MapScreen(
                     text = "No rock distribution data found in this area. Be the first to log a discovery!.",
                     color = TextDark
                 )
+            }
+        }
+
+        if (isPosting) {
+            Dialog(onDismissRequest = {}) {
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = Color.White),
+                    shape = RoundedCornerShape(16.dp)
+                ) {
+                    Column(
+                        modifier = Modifier.padding(horizontal = 22.dp, vertical = 18.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        CircularProgressIndicator(
+                            color = Rock1,
+                            modifier = Modifier.size(26.dp),
+                            strokeWidth = 2.dp
+                        )
+                        Text(
+                            text = "Submitting...",
+                            color = TextDark,
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Text(
+                            text = "Please wait while we upload your content",
+                            color = TextDark.copy(alpha = 0.7f),
+                            style = MaterialTheme.typography.labelSmall
+                        )
+                    }
+                }
             }
         }
 
