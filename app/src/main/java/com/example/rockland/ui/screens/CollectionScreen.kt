@@ -35,7 +35,11 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
@@ -48,6 +52,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -56,11 +61,17 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
+import androidx.compose.ui.window.Dialog
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import android.net.Uri
 import com.example.rockland.data.auth.FirebaseAuthRepository
 import com.example.rockland.data.model.CollectionItem
+import com.example.rockland.data.repository.ContentReviewRepository
 import com.example.rockland.data.repository.Rock
 import com.example.rockland.data.repository.RockRepository
 import com.example.rockland.ui.theme.Rock3
@@ -71,9 +82,9 @@ import com.example.rockland.presentation.viewmodel.UserViewModel
 import com.google.firebase.firestore.FirebaseFirestore
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.tasks.await
+import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Locale
-import androidx.compose.ui.window.Dialog
 
 
 @Composable
@@ -84,6 +95,8 @@ fun CollectionScreen(
     onTabSelected: ((Int) -> Unit)? = null
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    val userData = userViewModel?.userData?.collectAsState()?.value
+    val isVerifiedExpert = userData?.role?.trim()?.lowercase() == "verified_expert"
     val internalTabIndex = rememberSaveable { mutableIntStateOf(0) } // 0 = Collections, 1 = Dictionary
     val currentTab = selectedTabIndex ?: internalTabIndex.intValue
     val setTab: (Int) -> Unit = onTabSelected ?: { internalTabIndex.intValue = it }
@@ -168,7 +181,8 @@ fun CollectionScreen(
 
                 1 -> DictionaryTabContent(
                     userViewModel = userViewModel,
-                    collectionItems = uiState.items
+                    collectionItems = uiState.items,
+                    isVerifiedExpert = isVerifiedExpert
                 )
             }
         }
@@ -382,13 +396,17 @@ private fun CollectionListItem(
 @Composable
 private fun DictionaryTabContent(
     userViewModel: UserViewModel?,
-    collectionItems: List<CollectionItem>
+    collectionItems: List<CollectionItem>,
+    isVerifiedExpert: Boolean
 ) {
     val authRepo = remember { FirebaseAuthRepository.getInstance() }
     val user by authRepo.authState.collectAsState(initial = null)
+    val userData = userViewModel?.userData?.collectAsState()?.value
 
     val rockRepository = remember { RockRepository() }
+    val reviewRepository = remember { ContentReviewRepository() }
     val db = remember { FirebaseFirestore.getInstance() }
+    val scope = rememberCoroutineScope()
 
     val allRocks = remember { mutableStateOf<List<Rock>>(emptyList()) }
     val unlockedRockIds = remember { mutableStateOf<Set<String>>(emptySet()) }
@@ -396,6 +414,9 @@ private fun DictionaryTabContent(
     val error = remember { mutableStateOf<String?>(null) }
     val query = remember { mutableStateOf("") }
     val selectedRock = remember { mutableStateOf<Rock?>(null) }
+    val showAddDialog = remember { mutableStateOf(false) }
+    val showEditDialog = remember { mutableStateOf(false) }
+    val editingRock = remember { mutableStateOf<Rock?>(null) }
 
     // Load dictionary rocks and per-user unlock set.
     LaunchedEffect(user?.uid) {
@@ -437,7 +458,8 @@ private fun DictionaryTabContent(
         allRocks.value.filter { it.rockName.startsWith(q, ignoreCase = true) }
     }
 
-    Column(modifier = Modifier.fillMaxSize()) {
+    Box(modifier = Modifier.fillMaxSize()) {
+        Column(modifier = Modifier.fillMaxSize()) {
         OutlinedTextField(
             value = query.value,
             onValueChange = { query.value = it },
@@ -504,8 +526,292 @@ private fun DictionaryTabContent(
                         rock = rock,
                         isUnlocked = isUnlocked,
                         collectionItem = collectionItem,
-                        onDismiss = { selectedRock.value = null }
+                        onDismiss = { selectedRock.value = null },
+                        isVerifiedExpert = isVerifiedExpert,
+                        onEdit = {
+                            editingRock.value = rock
+                            showEditDialog.value = true
+                            selectedRock.value = null
+                        }
                     )
+                }
+            }
+        }
+        }
+
+        if (isVerifiedExpert) {
+            FloatingActionButton(
+                onClick = { showAddDialog.value = true },
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(16.dp),
+                containerColor = Color(0xFF2A2A2A)
+            ) {
+                Text("+", color = Color.White, style = MaterialTheme.typography.titleLarge)
+            }
+        }
+
+        if (showAddDialog.value) {
+            AddEditRockDialog(
+                title = "Add New Rock",
+                initialRock = null,
+                onDismiss = { showAddDialog.value = false },
+                onError = { msg -> userViewModel?.showError(msg) },
+                onSubmit = { request ->
+                    scope.launch {
+                        runCatching {
+                            val existing = rockRepository.getRockByName(request.rockName)
+                            if (existing != null) {
+                                userViewModel?.showError(
+                                    "Existing rock already exists! Unable to add new Rock to Rock Dictionary."
+                                )
+                                showAddDialog.value = false
+                                return@runCatching
+                            }
+                            val displayName = listOf(
+                                userData?.firstName.orEmpty(),
+                                userData?.lastName.orEmpty()
+                            ).filter { it.isNotBlank() }.joinToString(" ").ifBlank {
+                                userData?.email.orEmpty().ifBlank { "Verified Expert" }
+                            }
+                            val imageUrl = request.imageUri?.let { uri ->
+                                reviewRepository.uploadRockDictionaryImage(
+                                    userId = user?.uid.orEmpty(),
+                                    imageUri = uri
+                                )
+                            } ?: request.existingImageUrl
+                            reviewRepository.submitRockDictionaryRequest(
+                                requestType = request.requestType,
+                                rockID = request.rockID,
+                                rockName = request.rockName,
+                                rockRarity = request.rockRarity,
+                                rockLocation = request.rockLocation,
+                                rockDesc = request.rockDesc,
+                                imageUrl = imageUrl,
+                                submittedBy = displayName,
+                                submittedById = user?.uid.orEmpty()
+                            )
+                            userViewModel?.showInfo(
+                                "New Rock data has been saved and sent to the team for review. Please await a response from the Rockland Team."
+                            )
+                            showAddDialog.value = false
+                        }.onFailure { e ->
+                            userViewModel?.showError(e.message ?: "Failed to submit rock request.")
+                        }
+                    }
+                }
+            )
+        }
+
+        if (showEditDialog.value && editingRock.value != null) {
+            AddEditRockDialog(
+                title = "Edit Rock Information",
+                initialRock = editingRock.value,
+                onDismiss = {
+                    showEditDialog.value = false
+                    editingRock.value = null
+                },
+                onError = { msg -> userViewModel?.showError(msg) },
+                onSubmit = { request ->
+                    scope.launch {
+                        runCatching {
+                            val displayName = listOf(
+                                userData?.firstName.orEmpty(),
+                                userData?.lastName.orEmpty()
+                            ).filter { it.isNotBlank() }.joinToString(" ").ifBlank {
+                                userData?.email.orEmpty().ifBlank { "Verified Expert" }
+                            }
+                            val imageUrl = request.imageUri?.let { uri ->
+                                reviewRepository.uploadRockDictionaryImage(
+                                    userId = user?.uid.orEmpty(),
+                                    imageUri = uri
+                                )
+                            } ?: request.existingImageUrl
+                            reviewRepository.submitRockDictionaryRequest(
+                                requestType = request.requestType,
+                                rockID = request.rockID,
+                                rockName = request.rockName,
+                                rockRarity = request.rockRarity,
+                                rockLocation = request.rockLocation,
+                                rockDesc = request.rockDesc,
+                                imageUrl = imageUrl,
+                                submittedBy = displayName,
+                                submittedById = user?.uid.orEmpty()
+                            )
+                            userViewModel?.showInfo(
+                                "Rock Information Update has been saved and sent to the team for review. Please await a response from the Rockland Team."
+                            )
+                            showEditDialog.value = false
+                            editingRock.value = null
+                        }.onFailure { e ->
+                            userViewModel?.showError(e.message ?: "Failed to submit rock request.")
+                        }
+                    }
+                }
+            )
+        }
+    }
+}
+
+private data class PendingRockRequest(
+    val requestType: String,
+    val rockID: Int,
+    val rockName: String,
+    val rockRarity: String,
+    val rockLocation: String,
+    val rockDesc: String,
+    val imageUri: Uri?,
+    val existingImageUrl: String
+)
+
+@Composable
+private fun AddEditRockDialog(
+    title: String,
+    initialRock: Rock?,
+    onDismiss: () -> Unit,
+    onError: (String) -> Unit,
+    onSubmit: (PendingRockRequest) -> Unit
+) {
+    val context = LocalContext.current
+    val rockName = remember { mutableStateOf(initialRock?.rockName ?: "") }
+    val rockRarity = remember { mutableStateOf(initialRock?.rockRarity ?: "") }
+    val rockLocation = remember { mutableStateOf(initialRock?.rockLocation ?: "") }
+    val rockDesc = remember { mutableStateOf(initialRock?.rockDesc ?: "") }
+    val imageUri = remember { mutableStateOf<Uri?>(null) }
+    val picker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        val mimeType = context.contentResolver.getType(uri) ?: ""
+        val sizeOk = runCatching {
+            val length = context.contentResolver
+                .openAssetFileDescriptor(uri, "r")
+                ?.use { it.length }
+                ?: -1L
+            length in 1..20L * 1024L * 1024L
+        }.getOrDefault(false)
+        val typeOk = mimeType == "image/jpeg" || mimeType == "image/png"
+        if (!typeOk || !sizeOk) {
+            onError("Upload failed. The image must be a JPEG or PNG and under 20MB.")
+            imageUri.value = null
+        } else {
+            imageUri.value = uri
+        }
+    }
+
+    Dialog(onDismissRequest = onDismiss) {
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(max = 560.dp),
+            colors = CardDefaults.cardColors(containerColor = Color.White),
+            shape = RoundedCornerShape(18.dp)
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
+                    .padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = TextDark
+                )
+                OutlinedTextField(
+                    value = rockName.value,
+                    onValueChange = { rockName.value = it },
+                    label = { Text("Rock Name") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true
+                )
+                OutlinedTextField(
+                    value = rockRarity.value,
+                    onValueChange = { rockRarity.value = it },
+                    label = { Text("Rock Rarity") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true
+                )
+                OutlinedTextField(
+                    value = rockLocation.value,
+                    onValueChange = { rockLocation.value = it },
+                    label = { Text("Rock Location") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true
+                )
+                OutlinedTextField(
+                    value = rockDesc.value,
+                    onValueChange = { rockDesc.value = it },
+                    label = { Text("Rock Description") },
+                    modifier = Modifier.fillMaxWidth(),
+                    minLines = 3
+                )
+                Button(
+                    onClick = { picker.launch("image/*") },
+                    colors = ButtonDefaults.buttonColors(containerColor = Rock3),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Upload image")
+                }
+                if (imageUri.value != null) {
+                    AsyncImage(
+                        model = imageUri.value,
+                        contentDescription = null,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(140.dp)
+                            .clip(RoundedCornerShape(12.dp)),
+                        contentScale = ContentScale.Crop
+                    )
+                } else if (initialRock?.rockImageUrl?.isNotBlank() == true) {
+                    AsyncImage(
+                        model = initialRock.rockImageUrl,
+                        contentDescription = null,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(140.dp)
+                            .clip(RoundedCornerShape(12.dp)),
+                        contentScale = ContentScale.Crop
+                    )
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End
+                ) {
+                    TextButton(onClick = onDismiss) { Text("Cancel") }
+                    Button(onClick = {
+                        val name = rockName.value.trim()
+                        val rarity = rockRarity.value.trim()
+                        val location = rockLocation.value.trim()
+                        val desc = rockDesc.value.trim()
+                        if (name.isBlank() || rarity.isBlank() || location.isBlank()) {
+                            onError("Please fill in all required fields.")
+                            return@Button
+                        }
+                        if (desc.length !in 10..1000) {
+                            onError("Description must be between 10 and 1000 characters. Please edit your description and try again.")
+                            return@Button
+                        }
+                        if (initialRock == null && imageUri.value == null) {
+                            onError("You must upload a rock image before submitting.")
+                            return@Button
+                        }
+                        val request = PendingRockRequest(
+                            requestType = if (initialRock == null) "ADD" else "EDIT",
+                            rockID = initialRock?.rockID ?: 0,
+                            rockName = name,
+                            rockRarity = rarity,
+                            rockLocation = location,
+                            rockDesc = desc,
+                            imageUri = imageUri.value,
+                            existingImageUrl = initialRock?.rockImageUrl.orEmpty()
+                        )
+                        onSubmit(request)
+                    }) {
+                        Text("Submit")
+                    }
                 }
             }
         }
@@ -591,7 +897,9 @@ private fun RockDictionaryDialog(
     rock: Rock,
     isUnlocked: Boolean,
     collectionItem: CollectionItem?,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    isVerifiedExpert: Boolean,
+    onEdit: () -> Unit
 ) {
     Dialog(onDismissRequest = onDismiss) {
         Box(
@@ -609,7 +917,12 @@ private fun RockDictionaryDialog(
                 if (!isUnlocked) {
                     LockedRockDialogContent()
                 } else {
-                    UnlockedRockDialogContent(rock = rock, collectionItem = collectionItem)
+                    UnlockedRockDialogContent(
+                        rock = rock,
+                        collectionItem = collectionItem,
+                        isVerifiedExpert = isVerifiedExpert,
+                        onEdit = onEdit
+                    )
                 }
             }
         }
@@ -652,7 +965,9 @@ private fun LockedRockDialogContent() {
 @Composable
 private fun UnlockedRockDialogContent(
     rock: Rock,
-    collectionItem: CollectionItem?
+    collectionItem: CollectionItem?,
+    isVerifiedExpert: Boolean,
+    onEdit: () -> Unit
 ) {
     val formatter = remember {
         SimpleDateFormat("dd MMM yyyy", Locale.US)
@@ -705,6 +1020,15 @@ private fun UnlockedRockDialogContent(
                 fontWeight = FontWeight.Bold,
                 color = TextDark
             )
+            if (isVerifiedExpert) {
+                Spacer(modifier = Modifier.height(10.dp))
+                Button(
+                    onClick = onEdit,
+                    colors = ButtonDefaults.buttonColors(containerColor = Rock3)
+                ) {
+                    Text("Edit Rock")
+                }
+            }
 
             Spacer(modifier = Modifier.height(10.dp))
             HorizontalDivider(color = Color(0xFFEDEDED))

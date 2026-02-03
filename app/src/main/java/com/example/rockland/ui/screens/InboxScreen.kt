@@ -9,12 +9,16 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Email
 import androidx.compose.material3.Button
@@ -42,15 +46,18 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.rockland.data.datasource.remote.UserData
 import com.example.rockland.presentation.viewmodel.InboxNotification
+import com.example.rockland.presentation.viewmodel.RockDictionaryRequest
 import com.example.rockland.presentation.viewmodel.ReviewContentViewModel
 import com.example.rockland.ui.theme.Rock3
 import com.example.rockland.ui.theme.TextDark
+import coil.compose.AsyncImage
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -67,6 +74,7 @@ fun InboxScreen(
     val showFaqDialog = remember { mutableStateOf(false) }
     val requestFormVisible = remember { mutableStateOf(false) }
     val reviewScreenVisible = remember { mutableStateOf(false) }
+    val rockReviewVisible = remember { mutableStateOf(false) }
     val internalReviewTabIndex = rememberSaveable { mutableIntStateOf(0) }
     val currentReviewTabIndex = reviewTabIndex ?: internalReviewTabIndex.intValue
     val setReviewTabIndex: (Int) -> Unit =
@@ -75,6 +83,7 @@ fun InboxScreen(
     val notificationsVisible = remember { mutableStateOf(false) }
     val pendingComments by reviewViewModel.pendingComments.collectAsState()
     val pendingPhotos by reviewViewModel.pendingPhotos.collectAsState()
+    val pendingRockRequests by reviewViewModel.pendingRockRequests.collectAsState()
     val notifications by reviewViewModel.notifications.collectAsState()
 
     LaunchedEffect(userData?.userId, userData?.role) {
@@ -152,6 +161,19 @@ fun InboxScreen(
                 setReviewTabIndex(if (tab == ReviewTab.IMAGES) 1 else 0)
             },
             onBack = { reviewScreenVisible.value = false }
+        )
+        return
+    }
+    if (rockReviewVisible.value) {
+        RockDictionaryReviewScreen(
+            requests = pendingRockRequests,
+            onApprove = { request ->
+                reviewViewModel.approveRockRequest(request, userData?.userId)
+            },
+            onReject = { request ->
+                reviewViewModel.rejectRockRequest(request, userData?.userId)
+            },
+            onBack = { rockReviewVisible.value = false }
         )
         return
     }
@@ -262,6 +284,7 @@ fun InboxScreen(
         Spacer(modifier = Modifier.height(24.dp))
 
         val isVerifiedExpert = userData?.role?.trim()?.lowercase() == "verified_expert"
+        val isAdmin = userData?.role?.trim()?.lowercase() == "admin"
         if (isVerifiedExpert) {
             Column(
                 modifier = Modifier.fillMaxWidth(),
@@ -290,7 +313,27 @@ fun InboxScreen(
                     }
                 )
             }
-        } else {
+        }
+        if (isAdmin) {
+            Spacer(modifier = Modifier.height(12.dp))
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Text(
+                    text = "Rock Dictionary Review",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = TextDark
+                )
+                ReviewEntryCard(
+                    title = "Dictionary Review",
+                    subtitle = "${pendingRockRequests.size} Requests Pending",
+                    onClick = { rockReviewVisible.value = true }
+                )
+            }
+        }
+        if (!isVerifiedExpert && !isAdmin) {
             Spacer(modifier = Modifier.height(8.dp))
         }
 
@@ -374,6 +417,274 @@ private fun ReviewEntryCard(
 }
 
 @Composable
+private fun RockDictionaryReviewScreen(
+    requests: List<RockDictionaryRequest>,
+    onApprove: (RockDictionaryRequest) -> Unit,
+    onReject: (RockDictionaryRequest) -> Unit,
+    onBack: () -> Unit
+) {
+    val selectedRequest = remember { mutableStateOf<RockDictionaryRequest?>(null) }
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color(0xFFF5F5F5))
+            .padding(16.dp)
+    ) {
+        Column(
+            modifier = Modifier.fillMaxSize(),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            RockReviewHeader(onBack = onBack)
+            if (requests.isEmpty()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(Color(0xFFF5F5F5)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = "No pending rock dictionary requests.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextDark.copy(alpha = 0.6f)
+                    )
+                }
+            } else {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    requests.forEachIndexed { index, request ->
+                        RockDictionaryReviewCard(
+                            request = request,
+                            number = index + 1,
+                            onClick = { selectedRequest.value = request }
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    selectedRequest.value?.let { request ->
+        RockDictionaryReviewDialog(
+            request = request,
+            onApprove = {
+                onApprove(request)
+                selectedRequest.value = null
+            },
+            onReject = {
+                onReject(request)
+                selectedRequest.value = null
+            },
+            onClose = { selectedRequest.value = null }
+        )
+    }
+}
+
+@Composable
+private fun RockReviewHeader(onBack: () -> Unit) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            IconButton(onClick = onBack) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = "Back",
+                    tint = TextDark
+                )
+            }
+            Column {
+                Text(
+                    text = "Rock Dictionary Review",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.SemiBold,
+                    color = TextDark
+                )
+                Text(
+                    text = "Admin Review",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextDark.copy(alpha = 0.6f)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun RockDictionaryReviewCard(
+    request: RockDictionaryRequest,
+    number: Int,
+    onClick: () -> Unit
+) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onClick() },
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
+        shape = MaterialTheme.shapes.medium
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Request No. $number: ${request.requestType} • ${request.rockName}",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    color = TextDark
+                )
+                Box(
+                    modifier = Modifier
+                        .clip(CircleShape)
+                        .background(Color(0xFFEDEDED))
+                        .padding(horizontal = 10.dp, vertical = 4.dp)
+                ) {
+                    Text(
+                        text = request.requestType.uppercase(),
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = TextDark
+                    )
+                }
+            }
+            Text(
+                text = "Submitted by: ${request.submittedBy}",
+                style = MaterialTheme.typography.bodySmall,
+                color = TextDark.copy(alpha = 0.7f)
+            )
+            Text(
+                text = "Submitted on: ${formatDate(request.createdAt)}",
+                style = MaterialTheme.typography.bodySmall,
+                color = TextDark.copy(alpha = 0.7f)
+            )
+            Text(
+                text = request.rockLocation,
+                style = MaterialTheme.typography.bodySmall,
+                color = TextDark.copy(alpha = 0.8f)
+            )
+        }
+    }
+}
+
+@Composable
+private fun RockDictionaryReviewDialog(
+    request: RockDictionaryRequest,
+    onApprove: () -> Unit,
+    onReject: () -> Unit,
+    onClose: () -> Unit
+) {
+    Dialog(onDismissRequest = onClose) {
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            colors = CardDefaults.cardColors(containerColor = Color.White),
+            shape = MaterialTheme.shapes.large
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "${request.requestType} Request",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = TextDark
+                    )
+                    IconButton(onClick = onClose) {
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = "Close",
+                            tint = TextDark
+                        )
+                    }
+                }
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(200.dp)
+                        .clip(MaterialTheme.shapes.large)
+                        .background(Color(0xFFF1F1F1)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    if (request.imageUrl.isBlank()) {
+                        Text(
+                            text = "No image provided",
+                            color = TextDark.copy(alpha = 0.7f)
+                        )
+                    } else {
+                        AsyncImage(
+                            model = request.imageUrl,
+                            contentDescription = null,
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    }
+                }
+                Text(
+                    text = "Rock Name: ${request.rockName}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextDark
+                )
+                Text(
+                    text = "Rarity: ${request.rockRarity}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextDark
+                )
+                Text(
+                    text = "Location: ${request.rockLocation}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextDark
+                )
+                Text(
+                    text = "Description: ${request.rockDesc}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextDark.copy(alpha = 0.8f)
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Button(
+                        onClick = onApprove,
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF4CAF50)),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text("APPROVE")
+                    }
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Button(
+                        onClick = onReject,
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF8B2E2E)),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text("REJECT")
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun NotificationsDialog(
     notifications: List<InboxNotification>,
     onMarkRead: (String) -> Unit,
@@ -421,11 +732,13 @@ private fun NotificationsDialog(
                         color = TextDark.copy(alpha = 0.6f)
                     )
                 } else {
-                    Column(
-                        modifier = Modifier.fillMaxWidth(),
+                    LazyColumn(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(max = 360.dp),
                         verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        notifications.forEach { notification ->
+                        items(notifications) { notification ->
                             Card(
                                 modifier = Modifier
                                     .fillMaxWidth()

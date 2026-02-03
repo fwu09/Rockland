@@ -47,4 +47,22 @@ class RockRepository {
 
         return snapshot.documents.mapNotNull { it.toObject(Rock::class.java) }
     }
+
+    @Suppress("unused")
+    suspend fun addRock(rock: Rock) {
+        db.collection("rock")
+            .add(rock)
+            .await()
+    }
+
+    @Suppress("unused")
+    suspend fun updateRock(rockId: Int, rock: Rock) {
+        val snapshot = db.collection("rock")
+            .whereEqualTo("rockID", rockId)
+            .limit(1)
+            .get()
+            .await()
+        val doc = snapshot.documents.firstOrNull() ?: return
+        doc.reference.set(rock).await()
+    }
 }
