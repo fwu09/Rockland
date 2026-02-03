@@ -74,6 +74,10 @@ class UserViewModel(
                                 "UserViewModel",
                                 "User data loaded in init: $userData"
                             )
+                            if (userData.role.trim().lowercase() in listOf("admin", "user_admin")) {
+                                userRepo.ensureAdminData(user.uid)
+                                _userData.value = userRepo.getUserProfile(user.uid)
+                            }
                         } catch (e: Exception) {
                             android.util.Log.e(
                                 "UserViewModel",

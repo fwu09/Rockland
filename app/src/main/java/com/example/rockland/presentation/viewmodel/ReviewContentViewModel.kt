@@ -24,6 +24,24 @@ data class InboxNotification(
     val isRead: Boolean
 )
 
+data class RockDictionaryRequest(
+    val id: String,
+    val requestPath: String,
+    val requestType: String,
+    val rockID: Int,
+    val rockName: String,
+    val rockRarity: String,
+    val rockLocation: String,
+    val rockDesc: String,
+    val imageUrl: String,
+    val submittedBy: String,
+    val submittedById: String,
+    val createdAt: Long,
+    val status: ContentStatus,
+    val reviewedBy: String?,
+    val reviewedAt: Long?
+)
+
 class ReviewContentViewModel(
     private val repository: ContentReviewRepository = ContentReviewRepository()
 ) : ViewModel() {
@@ -32,6 +50,9 @@ class ReviewContentViewModel(
 
     private val _pendingPhotos = MutableStateFlow<List<LocationPhoto>>(emptyList())
     val pendingPhotos: StateFlow<List<LocationPhoto>> = _pendingPhotos.asStateFlow()
+
+    private val _pendingRockRequests = MutableStateFlow<List<RockDictionaryRequest>>(emptyList())
+    val pendingRockRequests: StateFlow<List<RockDictionaryRequest>> = _pendingRockRequests.asStateFlow()
 
     private val _notifications = MutableStateFlow<List<InboxNotification>>(emptyList())
     val notifications: StateFlow<List<InboxNotification>> = _notifications.asStateFlow()
@@ -56,10 +77,17 @@ class ReviewContentViewModel(
                 val photos = repository.fetchPendingPhotos()
                 _pendingComments.value = comments
                 _pendingPhotos.value = photos
-                refreshNotifications(comments, photos)
+                val rockRequests = if (_role.value == "admin") {
+                    repository.fetchPendingRockDictionaryRequests()
+                } else {
+                    emptyList()
+                }
+                _pendingRockRequests.value = rockRequests
+                refreshNotifications(comments, photos, rockRequests)
             } catch (_: Exception) {
                 _pendingComments.value = emptyList()
                 _pendingPhotos.value = emptyList()
+                _pendingRockRequests.value = emptyList()
                 _notifications.value = emptyList()
             }
         }
@@ -67,7 +95,8 @@ class ReviewContentViewModel(
 
     private suspend fun refreshNotifications(
         pendingComments: List<LocationComment>,
-        pendingPhotos: List<LocationPhoto>
+        pendingPhotos: List<LocationPhoto>,
+        pendingRockRequests: List<RockDictionaryRequest>
     ) {
         val role = _role.value
         val userId = _userId.value
@@ -90,6 +119,25 @@ class ReviewContentViewModel(
                             id = "pending_photos",
                             title = "New Image Submission",
                             message = "You have ${pendingPhotos.size} image submissions waiting for review.",
+                            date = "Today",
+                            isRead = false
+                        )
+                    )
+                }
+                if (!userId.isNullOrBlank()) {
+                    val raw = repository.fetchUserNotifications(userId)
+                    addAll(raw.map { it.toUi() })
+                }
+            }
+            _notifications.value = notifications
+        } else if (role == "admin") {
+            val notifications = buildList {
+                if (pendingRockRequests.isNotEmpty()) {
+                    add(
+                        InboxNotification(
+                            id = "pending_rock_dictionary",
+                            title = "Rock Dictionary Review",
+                            message = "You have ${pendingRockRequests.size} dictionary updates waiting for review.",
                             date = "Today",
                             isRead = false
                         )
@@ -165,10 +213,39 @@ class ReviewContentViewModel(
         }
     }
 
+    fun approveRockRequest(request: RockDictionaryRequest, reviewerId: String?) {
+        viewModelScope.launch {
+            repository.approveRockDictionaryRequest(request, reviewerId)
+            if (request.submittedById.isNotBlank()) {
+                repository.addUserNotification(
+                    userId = request.submittedById,
+                    title = "Rock Dictionary Update Approved",
+                    message = "Your rock dictionary submission was approved by an admin."
+                )
+            }
+            refresh()
+        }
+    }
+
+    fun rejectRockRequest(request: RockDictionaryRequest, reviewerId: String?) {
+        viewModelScope.launch {
+            repository.rejectRockDictionaryRequest(request, reviewerId)
+            if (request.submittedById.isNotBlank()) {
+                repository.addUserNotification(
+                    userId = request.submittedById,
+                    title = "Rock Dictionary Update Rejected",
+                    message = "Your rock dictionary submission was rejected by an admin."
+                )
+            }
+            refresh()
+        }
+    }
+
     fun markNotificationRead(notificationId: String) {
         val role = _role.value
         val userId = _userId.value
-        if (role == "verified_expert") return
+        if (role == "verified_expert" && notificationId.startsWith("pending_")) return
+        if (role == "admin") return
         if (userId.isNullOrBlank()) return
         viewModelScope.launch {
             repository.markNotificationRead(userId, notificationId)
@@ -180,6 +257,17 @@ class ReviewContentViewModel(
         val role = _role.value
         val userId = _userId.value
         if (role == "verified_expert") {
+            if (userId.isNullOrBlank()) {
+                _notifications.value = emptyList()
+                return
+            }
+            viewModelScope.launch {
+                repository.clearNotifications(userId)
+                refresh()
+            }
+            return
+        }
+        if (role == "admin") {
             _notifications.value = emptyList()
             return
         }
@@ -204,6 +292,7 @@ class ReviewContentViewModel(
             isRead = isRead
         )
     }
+
 
     class Factory : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")

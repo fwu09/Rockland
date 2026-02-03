@@ -114,8 +114,12 @@ class RockLocationRepository(
         val annotations = annotationsSnapshot.documents.map { doc ->
             RockAnnotation(
                 id = doc.id,
+                expertId = doc.getString("expertId") ?: "",
                 expertName = doc.getString("expertName") ?: "Expert",
-                note = doc.getString("note") ?: ""
+                note = doc.getString("note") ?: "",
+                timestamp = doc.getLong("timestamp") ?: 0L,
+                imageUrls = (doc.get("imageUrls") as? List<*>)?.filterIsInstance<String>()
+                    ?: emptyList()
             )
         }
 
@@ -179,6 +183,43 @@ class RockLocationRepository(
         photosRef(locationId).add(payload).await()
     }
 
+    suspend fun addAnnotation(
+        locationId: String,
+        expertId: String,
+        expertName: String,
+        note: String,
+        imageUrls: List<String> = emptyList()
+    ) {
+        val payload = mapOf(
+            "locationId" to locationId,
+            "expertId" to expertId,
+            "expertName" to expertName,
+            "note" to note,
+            "timestamp" to System.currentTimeMillis(),
+            "imageUrls" to imageUrls
+        )
+        annotationsRef(locationId).add(payload).await()
+    }
+
+    suspend fun updateAnnotation(
+        locationId: String,
+        annotationId: String,
+        note: String,
+        imageUrls: List<String> = emptyList()
+    ) {
+        val payload = mapOf(
+            "note" to note,
+            "imageUrls" to imageUrls,
+            "updatedAt" to System.currentTimeMillis()
+        )
+        annotationsRef(locationId).document(annotationId).update(payload).await()
+    }
+
+    suspend fun deleteAnnotation(locationId: String, annotationId: String) {
+        annotationsRef(locationId).document(annotationId).delete().await()
+    }
+
+    @Suppress("unused")
     suspend fun addCommentWithPhotos(
         locationId: String,
         userId: String,

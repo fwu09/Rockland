@@ -3,10 +3,16 @@ package com.example.rockland.data.repository
 import com.example.rockland.data.model.ContentStatus
 import com.example.rockland.data.model.LocationComment
 import com.example.rockland.data.model.LocationPhoto
+import com.example.rockland.presentation.viewmodel.RockDictionaryRequest
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Query
 import com.google.firebase.Timestamp
+import com.google.firebase.storage.FirebaseStorage
+import android.net.Uri
 import kotlinx.coroutines.tasks.await
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
+import kotlin.coroutines.suspendCoroutine
 
 data class UserNotification(
     val id: String,
@@ -21,6 +27,8 @@ class ContentReviewRepository(
 ) {
     private val rockLocationsRef = firestore.collection("rockLocations")
     private val usersRef = firestore.collection("users")
+    private val rockDictionaryRequestsRef = firestore.collection("rockDictionaryRequests")
+    private val rocksRef = firestore.collection("rock")
 
     suspend fun fetchPendingComments(): List<LocationComment> {
         val snapshot = firestore.collectionGroup("comments")
@@ -69,6 +77,92 @@ class ContentReviewRepository(
         }
     }
 
+    suspend fun submitRockDictionaryRequest(
+        requestType: String,
+        rockID: Int,
+        rockName: String,
+        rockRarity: String,
+        rockLocation: String,
+        rockDesc: String,
+        imageUrl: String,
+        submittedBy: String,
+        submittedById: String
+    ) {
+        if (submittedById.isBlank()) {
+            throw IllegalArgumentException("Missing userId for rock dictionary request.")
+        }
+        val now = System.currentTimeMillis()
+        val requestId = rockDictionaryRequestsRef.document().id
+        val payload = mapOf(
+            "requestId" to requestId,
+            "requestType" to requestType,
+            "status" to ContentStatus.PENDING.name,
+            "rockID" to rockID,
+            "rockName" to rockName,
+            "rockRarity" to rockRarity,
+            "rockLocation" to rockLocation,
+            "rockDesc" to rockDesc,
+            "imageUrl" to imageUrl,
+            "submittedBy" to submittedBy,
+            "submittedById" to submittedById,
+            "createdAt" to now,
+            "updatedAt" to now
+        )
+        usersRef.document(submittedById)
+            .collection("rockDictionaryRequests")
+            .document(requestId)
+            .set(payload)
+            .await()
+    }
+
+    suspend fun uploadRockDictionaryImage(userId: String, imageUri: Uri): String = suspendCoroutine { cont ->
+        if (userId.isBlank()) {
+            cont.resumeWithException(IllegalArgumentException("Missing userId for image upload."))
+            return@suspendCoroutine
+        }
+        val storageRef = FirebaseStorage.getInstance()
+            .reference
+            .child("users/$userId/rockDictionary/${System.currentTimeMillis()}.jpg")
+        storageRef.putFile(imageUri)
+            .addOnSuccessListener {
+                storageRef.downloadUrl
+                    .addOnSuccessListener { uri -> cont.resume(uri.toString()) }
+                    .addOnFailureListener { e -> cont.resumeWithException(e) }
+            }
+            .addOnFailureListener { e -> cont.resumeWithException(e) }
+    }
+
+    suspend fun fetchPendingRockDictionaryRequests(): List<RockDictionaryRequest> {
+        val snapshot = firestore.collectionGroup("rockDictionaryRequests")
+            .whereEqualTo("status", ContentStatus.PENDING.name)
+            .orderBy("createdAt", Query.Direction.DESCENDING)
+            .get()
+            .await()
+        return snapshot.documents.map { doc ->
+            val createdAt = doc.getLong("createdAt") ?: 0L
+            val status = runCatching {
+                ContentStatus.valueOf(doc.getString("status") ?: ContentStatus.PENDING.name)
+            }.getOrDefault(ContentStatus.PENDING)
+            RockDictionaryRequest(
+                id = doc.getString("requestId") ?: doc.id,
+                requestPath = doc.reference.path,
+                requestType = doc.getString("requestType") ?: "ADD",
+                rockID = (doc.getLong("rockID") ?: 0L).toInt(),
+                rockName = doc.getString("rockName") ?: "",
+                rockRarity = doc.getString("rockRarity") ?: "",
+                rockLocation = doc.getString("rockLocation") ?: "",
+                rockDesc = doc.getString("rockDesc") ?: "",
+                imageUrl = doc.getString("imageUrl") ?: "",
+                submittedBy = doc.getString("submittedBy") ?: "Verified Expert",
+                submittedById = doc.getString("submittedById") ?: "",
+                createdAt = createdAt,
+                status = status,
+                reviewedBy = doc.getString("reviewedBy"),
+                reviewedAt = doc.getLong("reviewedAt")
+            )
+        }
+    }
+
     suspend fun updateCommentStatus(
         locationId: String,
         commentId: String,
@@ -109,6 +203,87 @@ class ContentReviewRepository(
             .document(photoId)
             .update(updates)
             .await()
+    }
+
+    suspend fun approveRockDictionaryRequest(
+        request: RockDictionaryRequest,
+        reviewerId: String?
+    ) {
+        applyRockDictionaryApproval(request)
+        updateRockDictionaryRequestStatus(request, ContentStatus.APPROVED, reviewerId)
+    }
+
+    suspend fun rejectRockDictionaryRequest(
+        request: RockDictionaryRequest,
+        reviewerId: String?
+    ) {
+        updateRockDictionaryRequestStatus(request, ContentStatus.REJECTED, reviewerId)
+    }
+
+    private suspend fun updateRockDictionaryRequestStatus(
+        request: RockDictionaryRequest,
+        status: ContentStatus,
+        reviewerId: String?
+    ) {
+        val updates = mapOf(
+            "status" to status.name,
+            "reviewedBy" to reviewerId,
+            "reviewedAt" to System.currentTimeMillis(),
+            "updatedAt" to System.currentTimeMillis()
+        )
+        if (request.requestPath.isNotBlank()) {
+            firestore.document(request.requestPath).update(updates).await()
+            return
+        }
+        if (request.id.isBlank()) return
+        rockDictionaryRequestsRef.document(request.id).update(updates).await()
+    }
+
+    private suspend fun applyRockDictionaryApproval(request: RockDictionaryRequest) {
+        if (request.requestType.uppercase() == "EDIT") {
+            val doc = findRockDoc(request.rockID, request.rockName) ?: return
+            val payload = mutableMapOf<String, Any>(
+                "rockID" to (request.rockID.takeIf { it > 0 } ?: (doc.getLong("rockID") ?: 0L).toInt()),
+                "rockName" to request.rockName,
+                "rockRarity" to request.rockRarity,
+                "rockLocation" to request.rockLocation,
+                "rockDesc" to request.rockDesc
+            )
+            val imageUrl = if (request.imageUrl.isNotBlank()) {
+                request.imageUrl
+            } else {
+                doc.getString("rockImageUrl") ?: ""
+            }
+            payload["rockImageUrl"] = imageUrl
+            doc.reference.set(payload).await()
+        } else {
+            val nextId = if (request.rockID > 0) request.rockID else getNextRockId()
+            val payload = mapOf(
+                "rockID" to nextId,
+                "rockName" to request.rockName,
+                "rockRarity" to request.rockRarity,
+                "rockLocation" to request.rockLocation,
+                "rockDesc" to request.rockDesc,
+                "rockImageUrl" to request.imageUrl
+            )
+            rocksRef.add(payload).await()
+        }
+    }
+
+    private suspend fun findRockDoc(rockId: Int, rockName: String) = when {
+        rockId > 0 -> {
+            rocksRef.whereEqualTo("rockID", rockId).limit(1).get().await().documents.firstOrNull()
+        }
+        rockName.isNotBlank() -> {
+            rocksRef.whereEqualTo("rockName", rockName).limit(1).get().await().documents.firstOrNull()
+        }
+        else -> null
+    }
+
+    private suspend fun getNextRockId(): Int {
+        val snapshot = rocksRef.orderBy("rockID", Query.Direction.DESCENDING).limit(1).get().await()
+        val current = snapshot.documents.firstOrNull()?.getLong("rockID") ?: 0L
+        return (current + 1L).toInt()
     }
 
     suspend fun fetchUserNotifications(userId: String): List<UserNotification> {

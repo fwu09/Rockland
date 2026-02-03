@@ -104,10 +104,8 @@ class MapViewModel(
                     try {
                         val profile = userService.getUserProfile(user.uid)
                         val displayName = "${profile.firstName} ${profile.lastName}".trim()
-                        authorName.value = if (displayName.isBlank()) {
+                        authorName.value = displayName.ifBlank {
                             user.email ?: "You"
-                        } else {
-                            displayName
                         }
                     } catch (_: Exception) {
                         authorName.value = user.email ?: "You"
@@ -301,6 +299,112 @@ class MapViewModel(
         }
     }
 
+    @Suppress("unused")
+    fun addAnnotation(note: String, imageUrls: List<String> = emptyList()) {
+        val locationId = _selectedLocation.value?.id ?: return
+        val uid = currentUser.value?.uid ?: return
+        val expertName = authorName.value.ifBlank { "Expert" }
+        viewModelScope.launch {
+            try {
+                repository.addAnnotation(
+                    locationId = locationId,
+                    expertId = uid,
+                    expertName = expertName,
+                    note = note,
+                    imageUrls = imageUrls
+                )
+                loadCommunityContent(locationId)
+            } catch (_: Throwable) {
+            }
+        }
+    }
+
+    @Suppress("unused")
+    fun updateAnnotation(annotationId: String, note: String, imageUrls: List<String> = emptyList()) {
+        val locationId = _selectedLocation.value?.id ?: return
+        viewModelScope.launch {
+            try {
+                repository.updateAnnotation(
+                    locationId = locationId,
+                    annotationId = annotationId,
+                    note = note,
+                    imageUrls = imageUrls
+                )
+                loadCommunityContent(locationId)
+            } catch (_: Throwable) {
+            }
+        }
+    }
+
+    fun deleteAnnotation(annotationId: String) {
+        val locationId = _selectedLocation.value?.id ?: return
+        viewModelScope.launch {
+            try {
+                repository.deleteAnnotation(locationId, annotationId)
+                loadCommunityContent(locationId)
+            } catch (_: Throwable) {
+            }
+        }
+    }
+
+    fun addAnnotationWithImage(context: Context, note: String, imageUri: Uri?) {
+        val locationId = _selectedLocation.value?.id ?: return
+        val uid = currentUser.value?.uid ?: return
+        val expertName = authorName.value.ifBlank { "Expert" }
+        viewModelScope.launch {
+            _isPosting.value = true
+            try {
+                val urls = if (imageUri != null) {
+                    uploadAnnotationPhotoUris(context, locationId, uid, listOf(imageUri))
+                } else {
+                    emptyList()
+                }
+                repository.addAnnotation(
+                    locationId = locationId,
+                    expertId = uid,
+                    expertName = expertName,
+                    note = note,
+                    imageUrls = urls
+                )
+                loadCommunityContent(locationId)
+            } catch (_: Throwable) {
+            } finally {
+                _isPosting.value = false
+            }
+        }
+    }
+
+    fun updateAnnotationWithImage(
+        context: Context,
+        annotationId: String,
+        note: String,
+        imageUri: Uri?,
+        existingImageUrls: List<String>
+    ) {
+        val locationId = _selectedLocation.value?.id ?: return
+        val uid = currentUser.value?.uid ?: return
+        viewModelScope.launch {
+            _isPosting.value = true
+            try {
+                val urls = if (imageUri != null) {
+                    uploadAnnotationPhotoUris(context, locationId, uid, listOf(imageUri))
+                } else {
+                    existingImageUrls
+                }
+                repository.updateAnnotation(
+                    locationId = locationId,
+                    annotationId = annotationId,
+                    note = note,
+                    imageUrls = urls
+                )
+                loadCommunityContent(locationId)
+            } catch (_: Throwable) {
+            } finally {
+                _isPosting.value = false
+            }
+        }
+    }
+
 
     private fun loadCommunityContent(locationId: String) {
         viewModelScope.launch {
@@ -378,6 +482,27 @@ private suspend fun uploadLocationPhotoUris(
     uris.mapNotNull { uri ->
         val fileRef = storageRef.child("${UUID.randomUUID()}.jpg")
         Log.d("MapUpload", "Uploading uri=$uri")
+        val stream = context.contentResolver.openInputStream(uri) ?: return@mapNotNull null
+        stream.use { fileRef.putStream(it).await() }
+        fileRef.downloadUrl.await().toString()
+    }
+}
+
+private suspend fun uploadAnnotationPhotoUris(
+    context: Context,
+    locationId: String,
+    userId: String,
+    uris: List<Uri>
+): List<String> = withContext(Dispatchers.IO) {
+    val storageRef = Firebase.storage.reference
+        .child("locations")
+        .child(locationId)
+        .child("annotations")
+        .child(userId)
+
+    uris.mapNotNull { uri ->
+        val fileRef = storageRef.child("${UUID.randomUUID()}.jpg")
+        Log.d("MapUpload", "Uploading annotation uri=$uri")
         val stream = context.contentResolver.openInputStream(uri) ?: return@mapNotNull null
         stream.use { fileRef.putStream(it).await() }
         fileRef.downloadUrl.await().toString()
