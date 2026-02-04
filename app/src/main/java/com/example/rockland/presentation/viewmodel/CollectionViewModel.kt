@@ -147,7 +147,12 @@ class CollectionViewModel(
                     }
                 }
 
-                // 3) successful upload + reload
+                // 3) mission/achievement trigger for "collect_rock"
+                runCatching {
+                    val triggerResult = awardsRepository.applyTrigger(userId, "collect_rock")
+                    triggerResult.messages.firstOrNull()?.let { _events.tryEmit(CollectionEvent.Success(it, rockId = rockId)) }
+                }
+                // 4) successful add + reload
                 _events.tryEmit(CollectionEvent.Success("Added to collection.", rockId = rockId))
                 loadUserCollection(userId)
 
@@ -321,6 +326,7 @@ class CollectionViewModel(
                 val existingItemId = repository.findCollectionItemId(userId, rockId, rockName)
 
                 // 2) Create entry if missing
+                val isNewAdd = existingItemId == null
                 val itemId = existingItemId ?: repository.addRockToCollection(
                     userId = userId,
                     rockId = rockId,
@@ -328,6 +334,13 @@ class CollectionViewModel(
                     rockName = rockName,
                     thumbnailUrl = thumbnailUrl
                 )
+
+                if (isNewAdd) {
+                    runCatching {
+                        val triggerResult = awardsRepository.applyTrigger(userId, "collect_rock")
+                        triggerResult.messages.firstOrNull()?.let { _events.tryEmit(CollectionEvent.Success(it, rockId = rockId)) }
+                    }
+                }
 
                 // 3) Upload image
                 val uploadedUrls = uploadUserPhotosSuspend(

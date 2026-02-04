@@ -62,11 +62,16 @@ fun MainScreenContent(
 ) {
     val mapViewModel = remember { MapViewModel() }
     val collectionViewModel: CollectionViewModel = viewModel()
-    val awardsViewModel: AwardsViewModel = viewModel(factory = AwardsViewModel.Factory(userData?.userId))
+    val awardsViewModel: AwardsViewModel = viewModel(
+        key = "awards_${userData?.userId ?: "_anon"}",
+        factory = AwardsViewModel.Factory(userData?.userId)
+    )
     val reviewContentViewModel: ReviewContentViewModel = viewModel(factory = ReviewContentViewModel.Factory())
     val collectionTabIndex = rememberSaveable { mutableIntStateOf(0) }
     val awardsTabIndex = rememberSaveable { mutableIntStateOf(0) }
     val inboxReviewTabIndex = rememberSaveable { mutableIntStateOf(0) }
+    val normalizedRole = userData?.role?.trim()?.lowercase()
+    val isAdmin = normalizedRole == "admin" || normalizedRole == "user_admin"
     Scaffold(
         bottomBar = {
             NavigationBar(
@@ -130,6 +135,16 @@ fun MainScreenContent(
                 2 -> InboxScreen(
                     userData = userData,
                     onProfileClick = { onTabSelected(5) },
+                    onGoToPage = { notification ->
+                        val targetTab = notification.targetTab?.trim()?.lowercase()
+                        if (targetTab == "map") {
+                            onTabSelected(1)
+                            val locationId = notification.targetLocationId.orEmpty()
+                            if (locationId.isNotBlank()) {
+                                mapViewModel.focusLocation(locationId)
+                            }
+                        }
+                    },
                     reviewViewModel = reviewContentViewModel,
                     reviewTabIndex = inboxReviewTabIndex.intValue,
                     onReviewTabChanged = { inboxReviewTabIndex.intValue = it }
@@ -140,7 +155,8 @@ fun MainScreenContent(
                     userId = userData?.userId,
                     viewModel = awardsViewModel,
                     selectedTabIndex = awardsTabIndex.intValue,
-                    onTabSelected = { awardsTabIndex.intValue = it }
+                    onTabSelected = { awardsTabIndex.intValue = it },
+                    isAdmin = isAdmin
                 )
                 5 -> ProfileScreen(
                     userData = userData,

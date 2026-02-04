@@ -33,7 +33,8 @@ class AwardsRepository(
                 rewardPoints = (doc.getLong("rewardPoints") ?: 0L).toInt(),
                 startAt = doc.getLong("startAt") ?: 0L,
                 endAt = doc.getLong("endAt") ?: 0L,
-                trigger = doc.getString("trigger") ?: ""
+                trigger = doc.getString("trigger") ?: "",
+                rockId = (doc.getLong("rockId") ?: 0L).takeIf { it > 0L }?.toInt()
             )
         }
     }
@@ -47,7 +48,8 @@ class AwardsRepository(
                 description = doc.getString("description") ?: "",
                 target = (doc.getLong("target") ?: 0L).toInt(),
                 rewardPoints = (doc.getLong("rewardPoints") ?: 0L).toInt(),
-                trigger = doc.getString("trigger") ?: ""
+                trigger = doc.getString("trigger") ?: "",
+                rockId = (doc.getLong("rockId") ?: 0L).takeIf { it > 0L }?.toInt()
             )
         }
     }
@@ -107,7 +109,8 @@ class AwardsRepository(
                 rewardPoints = (doc.getLong("rewardPoints") ?: 0L).toInt(),
                 startAt = doc.getLong("startAt") ?: 0L,
                 endAt = doc.getLong("endAt") ?: 0L,
-                trigger = doc.getString("trigger") ?: ""
+                trigger = doc.getString("trigger") ?: "",
+                rockId = (doc.getLong("rockId") ?: 0L).takeIf { it > 0L }?.toInt()
             )
         }
 
@@ -118,7 +121,8 @@ class AwardsRepository(
                 description = doc.getString("description") ?: "",
                 target = (doc.getLong("target") ?: 0L).toInt(),
                 rewardPoints = (doc.getLong("rewardPoints") ?: 0L).toInt(),
-                trigger = doc.getString("trigger") ?: ""
+                trigger = doc.getString("trigger") ?: "",
+                rockId = (doc.getLong("rockId") ?: 0L).takeIf { it > 0L }?.toInt()
             )
         }
 
@@ -204,6 +208,57 @@ class AwardsRepository(
         )
         batch.commit().await()
         return TriggerResult(messages = messages, pointsDelta = pointsDelta)
+    }
+
+    suspend fun upsertMission(definition: MissionDefinition) {
+        val data = mutableMapOf<String, Any>(
+            "title" to definition.title,
+            "description" to definition.description,
+            "type" to definition.type,
+            "target" to definition.target,
+            "rewardPoints" to definition.rewardPoints,
+            "startAt" to definition.startAt,
+            "endAt" to definition.endAt,
+            "trigger" to definition.trigger
+        )
+        definition.rockId?.let { rockId ->
+            data["rockId"] = rockId
+        }
+
+        if (definition.id.isBlank()) {
+            missionsRef.add(data).await()
+        } else {
+            missionsRef.document(definition.id).set(data, SetOptions.merge()).await()
+        }
+    }
+
+    suspend fun deleteMission(missionId: String) {
+        if (missionId.isBlank()) return
+        missionsRef.document(missionId).delete().await()
+    }
+
+    suspend fun upsertAchievement(definition: AchievementDefinition) {
+        val data = mutableMapOf<String, Any>(
+            "title" to definition.title,
+            "description" to definition.description,
+            "target" to definition.target,
+            "rewardPoints" to definition.rewardPoints,
+            "trigger" to definition.trigger
+        )
+        definition.rockId?.let { rockId ->
+            data["rockId"] = rockId
+        }
+
+        if (definition.id.isBlank()) {
+            achievementsRef.add(data).await()
+        } else {
+            achievementsRef.document(definition.id).set(data, SetOptions.merge()).await()
+        }
+    }
+
+    suspend fun deleteAchievement(achievementId: String) {
+        if (achievementId.isBlank()) return
+        achievementsRef.document(achievementId).delete().await()
     }
 
     private fun currentMonthId(): String {

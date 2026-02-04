@@ -9,7 +9,8 @@ data class MissionDefinition(
     val rewardPoints: Int = 0,
     val startAt: Long = 0L,
     val endAt: Long = 0L,
-    val trigger: String = ""
+    val trigger: String = "",
+    val rockId: Int? = null
 )
 
 data class MissionProgress(
@@ -33,7 +34,8 @@ data class AchievementDefinition(
     val description: String = "",
     val target: Int = 0,
     val rewardPoints: Int = 0,
-    val trigger: String = ""
+    val trigger: String = "",
+    val rockId: Int? = null
 )
 
 data class LeaderboardEntry(
