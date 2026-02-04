@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -38,6 +39,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Tab
@@ -74,6 +76,7 @@ import com.example.rockland.data.model.CollectionItem
 import com.example.rockland.data.repository.ContentReviewRepository
 import com.example.rockland.data.repository.Rock
 import com.example.rockland.data.repository.RockRepository
+import com.example.rockland.ui.theme.Rock1
 import com.example.rockland.ui.theme.Rock3
 import com.example.rockland.ui.theme.TextDark
 import com.example.rockland.presentation.viewmodel.CollectionViewModel
@@ -402,6 +405,8 @@ private fun DictionaryTabContent(
     val authRepo = remember { FirebaseAuthRepository.getInstance() }
     val user by authRepo.authState.collectAsState(initial = null)
     val userData = userViewModel?.userData?.collectAsState()?.value
+    val normalizedRole = userData?.role?.trim()?.lowercase()
+    val isAdmin = normalizedRole == "admin" || normalizedRole == "user_admin"
 
     val rockRepository = remember { RockRepository() }
     val reviewRepository = remember { ContentReviewRepository() }
@@ -417,6 +422,7 @@ private fun DictionaryTabContent(
     val showAddDialog = remember { mutableStateOf(false) }
     val showEditDialog = remember { mutableStateOf(false) }
     val editingRock = remember { mutableStateOf<Rock?>(null) }
+    val rockToDelete = remember { mutableStateOf<Rock?>(null) }
 
     // Load dictionary rocks and per-user unlock set.
     LaunchedEffect(user?.uid) {
@@ -527,10 +533,15 @@ private fun DictionaryTabContent(
                         isUnlocked = isUnlocked,
                         collectionItem = collectionItem,
                         onDismiss = { selectedRock.value = null },
-                        isVerifiedExpert = isVerifiedExpert,
+                        canEdit = isVerifiedExpert || isAdmin,
+                        canDelete = isAdmin,
                         onEdit = {
                             editingRock.value = rock
                             showEditDialog.value = true
+                            selectedRock.value = null
+                        },
+                        onDelete = {
+                            rockToDelete.value = rock
                             selectedRock.value = null
                         }
                     )
@@ -539,7 +550,7 @@ private fun DictionaryTabContent(
         }
         }
 
-        if (isVerifiedExpert) {
+        if (isVerifiedExpert || isAdmin) {
             FloatingActionButton(
                 onClick = { showAddDialog.value = true },
                 modifier = Modifier
@@ -649,6 +660,74 @@ private fun DictionaryTabContent(
                     }
                 }
             )
+        }
+    }
+
+    rockToDelete.value?.let { rock ->
+        Dialog(onDismissRequest = { rockToDelete.value = null }) {
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 24.dp, vertical = 16.dp),
+                colors = CardDefaults.cardColors(containerColor = Color.White),
+                shape = RoundedCornerShape(20.dp)
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Text(
+                        text = "Delete Rock",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = TextDark
+                    )
+                    Text(
+                        text = "Are you sure you want to delete this Rock?",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextDark.copy(alpha = 0.8f)
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.End
+                    ) {
+                        TextButton(onClick = { rockToDelete.value = null }) {
+                            Text("Cancel", style = MaterialTheme.typography.labelLarge, color = Rock1)
+                        }
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Button(
+                            onClick = {
+                                rockToDelete.value = null
+                                scope.launch {
+                                    runCatching {
+                                        val hasDeps = rockRepository.hasActiveDependencies(rock.rockID)
+                                        if (hasDeps) {
+                                            userViewModel?.showError(
+                                                "This rock is used in active mission/achievement. Please remove dependencies first."
+                                            )
+                                        } else {
+                                            rockRepository.deleteRock(rock.rockID)
+                                            allRocks.value = allRocks.value.filterNot { it.rockID == rock.rockID }
+                                            userViewModel?.showInfo("Rock has successfully been deleted!")
+                                        }
+                                    }.onFailure { e ->
+                                        userViewModel?.showError(e.message ?: "Failed to delete rock.")
+                                    }
+                                }
+                            },
+                            shape = RoundedCornerShape(16.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = Color(0xFF8B2E2E),
+                                contentColor = Color.White
+                            )
+                        ) {
+                            Text("Yes", style = MaterialTheme.typography.labelLarge)
+                        }
+                    }
+                }
+            }
         }
     }
 }
@@ -898,8 +977,10 @@ private fun RockDictionaryDialog(
     isUnlocked: Boolean,
     collectionItem: CollectionItem?,
     onDismiss: () -> Unit,
-    isVerifiedExpert: Boolean,
-    onEdit: () -> Unit
+    canEdit: Boolean,
+    canDelete: Boolean,
+    onEdit: () -> Unit,
+    onDelete: () -> Unit
 ) {
     Dialog(onDismissRequest = onDismiss) {
         Box(
@@ -920,8 +1001,10 @@ private fun RockDictionaryDialog(
                     UnlockedRockDialogContent(
                         rock = rock,
                         collectionItem = collectionItem,
-                        isVerifiedExpert = isVerifiedExpert,
-                        onEdit = onEdit
+                        canEdit = canEdit,
+                        canDelete = canDelete,
+                        onEdit = onEdit,
+                        onDelete = onDelete
                     )
                 }
             }
@@ -966,8 +1049,10 @@ private fun LockedRockDialogContent() {
 private fun UnlockedRockDialogContent(
     rock: Rock,
     collectionItem: CollectionItem?,
-    isVerifiedExpert: Boolean,
-    onEdit: () -> Unit
+    canEdit: Boolean,
+    canDelete: Boolean,
+    onEdit: () -> Unit,
+    onDelete: () -> Unit
 ) {
     val formatter = remember {
         SimpleDateFormat("dd MMM yyyy", Locale.US)
@@ -1020,13 +1105,31 @@ private fun UnlockedRockDialogContent(
                 fontWeight = FontWeight.Bold,
                 color = TextDark
             )
-            if (isVerifiedExpert) {
+            if (canEdit || canDelete) {
                 Spacer(modifier = Modifier.height(10.dp))
-                Button(
-                    onClick = onEdit,
-                    colors = ButtonDefaults.buttonColors(containerColor = Rock3)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Text("Edit Rock")
+                    if (canEdit) {
+                        OutlinedButton(
+                            onClick = onEdit,
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(16.dp)
+                        ) {
+                            Text("Edit Rock", style = MaterialTheme.typography.labelLarge)
+                        }
+                    }
+                    if (canDelete) {
+                        Button(
+                            onClick = onDelete,
+                            modifier = Modifier.weight(1f),
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF8B2E2E)),
+                            shape = RoundedCornerShape(16.dp)
+                        ) {
+                            Text("Delete Rock", color = Color.White, style = MaterialTheme.typography.labelLarge)
+                        }
+                    }
                 }
             }
 

@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.example.rockland.data.model.ContentStatus
+import com.example.rockland.data.model.HelpRequest
 import com.example.rockland.data.model.LocationComment
 import com.example.rockland.data.model.LocationPhoto
 import com.example.rockland.data.repository.ContentReviewRepository
@@ -21,7 +22,10 @@ data class InboxNotification(
     val title: String,
     val message: String,
     val date: String,
-    val isRead: Boolean
+    val isRead: Boolean,
+    val targetTab: String? = null,
+    val targetLocationId: String? = null,
+    val type: String? = null
 )
 
 data class RockDictionaryRequest(
@@ -54,6 +58,9 @@ class ReviewContentViewModel(
     private val _pendingRockRequests = MutableStateFlow<List<RockDictionaryRequest>>(emptyList())
     val pendingRockRequests: StateFlow<List<RockDictionaryRequest>> = _pendingRockRequests.asStateFlow()
 
+    private val _pendingHelpRequests = MutableStateFlow<List<HelpRequest>>(emptyList())
+    val pendingHelpRequests: StateFlow<List<HelpRequest>> = _pendingHelpRequests.asStateFlow()
+
     private val _notifications = MutableStateFlow<List<InboxNotification>>(emptyList())
     val notifications: StateFlow<List<InboxNotification>> = _notifications.asStateFlow()
 
@@ -83,11 +90,24 @@ class ReviewContentViewModel(
                     emptyList()
                 }
                 _pendingRockRequests.value = rockRequests
-                refreshNotifications(comments, photos, rockRequests)
-            } catch (_: Exception) {
+                val helpRequests = if (_role.value == "admin" || _role.value == "user_admin") {
+                    try {
+                        repository.fetchPendingHelpRequests()
+                    } catch (e: Exception) {
+                        android.util.Log.e("ReviewContentViewModel", "Failed to fetch pending help requests", e)
+                        emptyList()
+                    }
+                } else {
+                    emptyList()
+                }
+                _pendingHelpRequests.value = helpRequests
+                refreshNotifications(comments, photos, rockRequests, helpRequests)
+            } catch (e: Exception) {
+                android.util.Log.e("ReviewContentViewModel", "Failed to refresh", e)
                 _pendingComments.value = emptyList()
                 _pendingPhotos.value = emptyList()
                 _pendingRockRequests.value = emptyList()
+                _pendingHelpRequests.value = emptyList()
                 _notifications.value = emptyList()
             }
         }
@@ -96,7 +116,8 @@ class ReviewContentViewModel(
     private suspend fun refreshNotifications(
         pendingComments: List<LocationComment>,
         pendingPhotos: List<LocationPhoto>,
-        pendingRockRequests: List<RockDictionaryRequest>
+        pendingRockRequests: List<RockDictionaryRequest>,
+        pendingHelpRequests: List<HelpRequest>
     ) {
         val role = _role.value
         val userId = _userId.value
@@ -143,6 +164,36 @@ class ReviewContentViewModel(
                         )
                     )
                 }
+                if (pendingHelpRequests.isNotEmpty()) {
+                    add(
+                        InboxNotification(
+                            id = "pending_help_requests",
+                            title = "Help Requests",
+                            message = "You have ${pendingHelpRequests.size} help request(s) waiting for reply.",
+                            date = "Today",
+                            isRead = false
+                        )
+                    )
+                }
+            }
+            _notifications.value = notifications
+        } else if (role == "user_admin") {
+            val notifications = buildList {
+                if (pendingHelpRequests.isNotEmpty()) {
+                    add(
+                        InboxNotification(
+                            id = "pending_help_requests",
+                            title = "Help Requests",
+                            message = "You have ${pendingHelpRequests.size} help request(s) waiting for reply.",
+                            date = "Today",
+                            isRead = false
+                        )
+                    )
+                }
+                if (!userId.isNullOrBlank()) {
+                    val raw = repository.fetchUserNotifications(userId)
+                    addAll(raw.map { it.toUi() })
+                }
             }
             _notifications.value = notifications
         } else if (!userId.isNullOrBlank()) {
@@ -160,7 +211,9 @@ class ReviewContentViewModel(
                 repository.addUserNotification(
                     userId = comment.userId,
                     title = "Comment Approved",
-                    message = "Your comment was approved by a verified expert."
+                    message = "Your comment was approved by a verified expert.",
+                    targetTab = "map",
+                    targetLocationId = comment.locationId
                 )
             }
             refresh()
@@ -174,7 +227,9 @@ class ReviewContentViewModel(
                 repository.addUserNotification(
                     userId = comment.userId,
                     title = "Comment Rejected",
-                    message = "Your comment was rejected by a verified expert."
+                    message = "Your comment was rejected by a verified expert.",
+                    targetTab = "map",
+                    targetLocationId = comment.locationId
                 )
             }
             refresh()
@@ -189,7 +244,9 @@ class ReviewContentViewModel(
                     repository.addUserNotification(
                         userId = photo.userId,
                         title = "Image Approved",
-                        message = "Your image submission was approved by a verified expert."
+                        message = "Your image submission was approved by a verified expert.",
+                        targetTab = "map",
+                        targetLocationId = photo.locationId
                     )
                 }
             }
@@ -205,7 +262,9 @@ class ReviewContentViewModel(
                     repository.addUserNotification(
                         userId = photo.userId,
                         title = "Image Rejected",
-                        message = "Your image submission was rejected by a verified expert."
+                        message = "Your image submission was rejected by a verified expert.",
+                        targetTab = "map",
+                        targetLocationId = photo.locationId
                     )
                 }
             }
@@ -245,7 +304,8 @@ class ReviewContentViewModel(
         val role = _role.value
         val userId = _userId.value
         if (role == "verified_expert" && notificationId.startsWith("pending_")) return
-        if (role == "admin") return
+        if (role == "admin" && notificationId.startsWith("pending_")) return
+        if (role == "user_admin" && notificationId.startsWith("pending_")) return
         if (userId.isNullOrBlank()) return
         viewModelScope.launch {
             repository.markNotificationRead(userId, notificationId)
@@ -271,6 +331,17 @@ class ReviewContentViewModel(
             _notifications.value = emptyList()
             return
         }
+        if (role == "user_admin") {
+            if (!userId.isNullOrBlank()) {
+                viewModelScope.launch {
+                    repository.clearNotifications(userId)
+                    refresh()
+                }
+            } else {
+                _notifications.value = emptyList()
+            }
+            return
+        }
         if (userId.isNullOrBlank()) return
         viewModelScope.launch {
             repository.clearNotifications(userId)
@@ -289,8 +360,44 @@ class ReviewContentViewModel(
             title = title,
             message = message,
             date = date,
-            isRead = isRead
+            isRead = isRead,
+            targetTab = targetTab,
+            targetLocationId = targetLocationId,
+            type = type
         )
+    }
+
+    fun submitHelpRequest(userId: String?, userDisplayName: String?, subject: String, details: String) {
+        if (userId.isNullOrBlank()) return
+        viewModelScope.launch {
+            try {
+                repository.submitHelpRequest(
+                    userId = userId,
+                    userDisplayName = userDisplayName.orEmpty(),
+                    subject = subject.ifBlank { "Help Request" },
+                    details = details
+                )
+                // Refresh to update pending help requests for admin
+                refresh()
+            } catch (e: Exception) {
+                android.util.Log.e("ReviewContentViewModel", "Failed to submit help request", e)
+            }
+        }
+    }
+
+    fun replyHelpRequest(request: HelpRequest, replyText: String, repliedById: String?) {
+        if (repliedById.isNullOrBlank()) return
+        viewModelScope.launch {
+            try {
+                repository.replyHelpRequest(
+                    requestId = request.id,
+                    replyText = replyText,
+                    repliedById = repliedById,
+                    requestUserId = request.userId
+                )
+                refresh()
+            } catch (_: Exception) { }
+        }
     }
 
 

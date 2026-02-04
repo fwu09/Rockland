@@ -5,6 +5,7 @@ import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -13,25 +14,41 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -43,6 +60,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.rockland.data.model.AchievementDefinition
 import com.example.rockland.data.model.LeaderboardEntry
+import com.example.rockland.data.model.MissionDefinition
 import com.example.rockland.data.model.MissionWithProgress
 import com.example.rockland.presentation.viewmodel.AwardsViewModel
 import com.example.rockland.ui.theme.Rock1
@@ -53,56 +71,142 @@ fun AchievementScreen(
     userId: String? = null,
     viewModel: AwardsViewModel = viewModel(factory = AwardsViewModel.Factory(userId)),
     selectedTabIndex: Int? = null,
-    onTabSelected: ((Int) -> Unit)? = null
+    onTabSelected: ((Int) -> Unit)? = null,
+    isAdmin: Boolean = false
 ) {
     val tabs = listOf("Leaderboard", "In-Progress", "All")
     val internalTab = rememberSaveable { mutableIntStateOf(0) }
     val currentTab = selectedTabIndex ?: internalTab.intValue
     val setTab: (Int) -> Unit = onTabSelected ?: { internalTab.intValue = it }
     val uiState by viewModel.uiState.collectAsState()
+    val showAdminForm = remember { mutableStateOf(false) }
+    val adminEditingMission = remember { mutableStateOf<MissionDefinition?>(null) }
+    val adminEditingAchievement = remember { mutableStateOf<AchievementDefinition?>(null) }
+    val missionToDelete = remember { mutableStateOf<MissionDefinition?>(null) }
+    val achievementToDelete = remember { mutableStateOf<AchievementDefinition?>(null) }
 
     LaunchedEffect(currentTab) {
         viewModel.loadAwards()
     }
 
-    Column(
+    Box(
         modifier = Modifier
             .fillMaxSize()
             .background(Color(0xFFF5F5F5))
-            .padding(horizontal = 16.dp, vertical = 12.dp)
     ) {
-        Text(
-            text = "Awards",
-            style = MaterialTheme.typography.headlineSmall,
-            fontWeight = FontWeight.Bold,
-            color = TextDark
-        )
-
-        Spacer(modifier = Modifier.height(12.dp))
-
-        TabRow(
-            selectedTabIndex = currentTab,
-            modifier = Modifier.fillMaxWidth()
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 16.dp, vertical = 12.dp)
         ) {
-            tabs.forEachIndexed { index, title ->
-                Tab(
-                    selected = currentTab == index,
-                    onClick = { setTab(index) },
-                    text = { Text(title) }
+            Text(
+                text = "Awards",
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.Bold,
+                color = TextDark
+            )
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            TabRow(
+                selectedTabIndex = currentTab,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                tabs.forEachIndexed { index, title ->
+                    Tab(
+                        selected = currentTab == index,
+                        onClick = { setTab(index) },
+                        text = { Text(title) }
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            when (currentTab) {
+                0 -> LeaderboardTabContent(entries = uiState.leaderboard)
+                1 -> InProgressTabContent(missions = uiState.missions.filter { !it.completed })
+                2 -> AllTabContent(
+                    achievementsSummary = uiState.achievementsSummary,
+                    missionsSummary = uiState.missionsSummary,
+                    completedAchievements = uiState.completedAchievements,
+                    completedMissions = uiState.completedMissions,
+                    allMissions = uiState.missions.map { it.mission },
+                    allAchievements = uiState.allAchievements,
+                    isAdmin = isAdmin,
+                    onEditMission = { mission ->
+                        adminEditingMission.value = mission
+                        adminEditingAchievement.value = null
+                        showAdminForm.value = true
+                    },
+                    onEditAchievement = { achievement ->
+                        adminEditingAchievement.value = achievement
+                        adminEditingMission.value = null
+                        showAdminForm.value = true
+                    },
+                    onDeleteMission = { mission ->
+                        missionToDelete.value = mission
+                    },
+                    onDeleteAchievement = { achievement ->
+                        achievementToDelete.value = achievement
+                    }
                 )
             }
         }
 
-        Spacer(modifier = Modifier.height(12.dp))
+        if (isAdmin && currentTab == 2) {
+            FloatingActionButton(
+                onClick = {
+                    adminEditingMission.value = null
+                    adminEditingAchievement.value = null
+                    showAdminForm.value = true
+                },
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(end = 16.dp, bottom = 80.dp),
+                containerColor = Color(0xFF2A2A2A)
+            ) {
+                Text(text = "+", color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.Bold)
+            }
+        }
 
-        when (currentTab) {
-            0 -> LeaderboardTabContent(entries = uiState.leaderboard)
-            1 -> InProgressTabContent(missions = uiState.missions.filter { !it.completed })
-            2 -> AllTabContent(
-                achievementsSummary = uiState.achievementsSummary,
-                missionsSummary = uiState.missionsSummary,
-                completedAchievements = uiState.completedAchievements,
-                completedMissions = uiState.completedMissions
+        if (showAdminForm.value) {
+            AdminMissionAchievementDialog(
+                initialMission = adminEditingMission.value,
+                initialAchievement = adminEditingAchievement.value,
+                onDismiss = { showAdminForm.value = false },
+                onSaveMission = { def ->
+                    viewModel.upsertMission(def)
+                    showAdminForm.value = false
+                },
+                onSaveAchievement = { def ->
+                    viewModel.upsertAchievement(def)
+                    showAdminForm.value = false
+                }
+            )
+        }
+
+        missionToDelete.value?.let { mission ->
+            SimpleConfirmDialog(
+                title = "Delete Mission",
+                message = "Are you sure you want to delete this mission?",
+                onConfirm = {
+                    viewModel.deleteMission(mission.id)
+                    missionToDelete.value = null
+                },
+                onDismiss = { missionToDelete.value = null }
+            )
+        }
+
+        achievementToDelete.value?.let { achievement ->
+            SimpleConfirmDialog(
+                title = "Delete Achievement",
+                message = "Are you sure you want to delete this achievement?",
+                onConfirm = {
+                    viewModel.deleteAchievement(achievement.id)
+                    achievementToDelete.value = null
+                },
+                onDismiss = { achievementToDelete.value = null }
             )
         }
     }
@@ -272,7 +376,14 @@ private fun AllTabContent(
     achievementsSummary: String,
     missionsSummary: String,
     completedAchievements: List<AchievementDefinition>,
-    completedMissions: List<MissionWithProgress>
+    completedMissions: List<MissionWithProgress>,
+    allMissions: List<MissionDefinition>,
+    allAchievements: List<AchievementDefinition>,
+    isAdmin: Boolean,
+    onEditMission: (MissionDefinition) -> Unit,
+    onEditAchievement: (AchievementDefinition) -> Unit,
+    onDeleteMission: (MissionDefinition) -> Unit,
+    onDeleteAchievement: (AchievementDefinition) -> Unit
 ) {
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -324,6 +435,183 @@ private fun AllTabContent(
         } else {
             items(completedMissions) { mission ->
                 SimpleListRow(text = mission.mission.title)
+            }
+        }
+
+        if (isAdmin) {
+            item {
+                Spacer(modifier = Modifier.height(8.dp))
+                SectionHeader(title = "Admin Missions")
+            }
+            if (allMissions.isEmpty()) {
+                item {
+                    EmptyState(text = "No missions defined yet.")
+                }
+            } else {
+                items(allMissions) { mission ->
+                    AdminMissionRow(
+                        mission = mission,
+                        onEdit = { onEditMission(mission) },
+                        onDelete = { onDeleteMission(mission) }
+                    )
+                }
+            }
+
+            item {
+                Spacer(modifier = Modifier.height(8.dp))
+                SectionHeader(title = "Admin Achievements")
+            }
+            if (allAchievements.isEmpty()) {
+                item {
+                    EmptyState(text = "No achievements defined yet.")
+                }
+            } else {
+                items(allAchievements) { achievement ->
+                    AdminAchievementRow(
+                        achievement = achievement,
+                        onEdit = { onEditAchievement(achievement) },
+                        onDelete = { onDeleteAchievement(achievement) }
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AdminMissionRow(
+    mission: MissionDefinition,
+    onEdit: () -> Unit,
+    onDelete: () -> Unit
+) {
+    var menuExpanded by remember { mutableStateOf(false) }
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        shape = RoundedCornerShape(16.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(2.dp)
+            ) {
+                Text(
+                    text = mission.title.ifBlank { "(Untitled Mission)" },
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = TextDark
+                )
+                Text(
+                    text = "Reward: ${mission.rewardPoints} pts • Target: ${mission.target}",
+                    fontSize = 11.sp,
+                    color = TextDark.copy(alpha = 0.7f)
+                )
+                if (mission.type.isNotBlank()) {
+                    Text(
+                        text = "Type: ${mission.type}",
+                        fontSize = 11.sp,
+                        color = TextDark.copy(alpha = 0.7f)
+                    )
+                }
+            }
+            Box {
+                IconButton(onClick = { menuExpanded = true }) {
+                    Icon(
+                        imageVector = Icons.Default.MoreVert,
+                        contentDescription = "Mission actions",
+                        tint = TextDark.copy(alpha = 0.9f)
+                    )
+                }
+                DropdownMenu(
+                    expanded = menuExpanded,
+                    onDismissRequest = { menuExpanded = false }
+                ) {
+                    DropdownMenuItem(
+                        text = { Text("Edit") },
+                        onClick = {
+                            menuExpanded = false
+                            onEdit()
+                        }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Delete") },
+                        onClick = {
+                            menuExpanded = false
+                            onDelete()
+                        }
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AdminAchievementRow(
+    achievement: AchievementDefinition,
+    onEdit: () -> Unit,
+    onDelete: () -> Unit
+) {
+    var menuExpanded by remember { mutableStateOf(false) }
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        shape = RoundedCornerShape(16.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(2.dp)
+            ) {
+                Text(
+                    text = achievement.title.ifBlank { "(Untitled Achievement)" },
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = TextDark
+                )
+                Text(
+                    text = "Reward: ${achievement.rewardPoints} pts • Target: ${achievement.target}",
+                    fontSize = 11.sp,
+                    color = TextDark.copy(alpha = 0.7f)
+                )
+            }
+            Box {
+                IconButton(onClick = { menuExpanded = true }) {
+                    Icon(
+                        imageVector = Icons.Default.MoreVert,
+                        contentDescription = "Achievement actions",
+                        tint = TextDark.copy(alpha = 0.9f)
+                    )
+                }
+                DropdownMenu(
+                    expanded = menuExpanded,
+                    onDismissRequest = { menuExpanded = false }
+                ) {
+                    DropdownMenuItem(
+                        text = { Text("Edit") },
+                        onClick = {
+                            menuExpanded = false
+                            onEdit()
+                        }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Delete") },
+                        onClick = {
+                            menuExpanded = false
+                            onDelete()
+                        }
+                    )
+                }
             }
         }
     }
@@ -427,5 +715,526 @@ private fun EmptyState(text: String) {
             color = TextDark.copy(alpha = 0.7f),
             modifier = Modifier.padding(12.dp)
         )
+    }
+}
+
+@Composable
+private fun SimpleConfirmDialog(
+    title: String,
+    message: String,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    androidx.compose.ui.window.Dialog(onDismissRequest = onDismiss) {
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            colors = CardDefaults.cardColors(containerColor = Color.White),
+            shape = RoundedCornerShape(18.dp)
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = TextDark
+                )
+                Text(
+                    text = message,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextDark.copy(alpha = 0.8f)
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End
+                ) {
+                    TextButton(onClick = onDismiss) {
+                        Text("Cancel")
+                    }
+                    Spacer(modifier = Modifier.width(8.dp))
+                    TextButton(onClick = onConfirm) {
+                        Text("Yes")
+                    }
+                }
+            }
+        }
+    }
+}
+
+private enum class AdminEntityKind {
+    MISSION,
+    ACHIEVEMENT
+}
+
+@Composable
+private fun AdminMissionAchievementDialog(
+    initialMission: MissionDefinition?,
+    initialAchievement: AchievementDefinition?,
+    onDismiss: () -> Unit,
+    onSaveMission: (MissionDefinition) -> Unit,
+    onSaveAchievement: (AchievementDefinition) -> Unit
+) {
+    val isEditingMission = initialMission != null
+    val isEditingAchievement = initialAchievement != null
+    val canSwitchType = !isEditingMission && !isEditingAchievement
+
+    val initialKind = when {
+        isEditingMission -> AdminEntityKind.MISSION
+        isEditingAchievement -> AdminEntityKind.ACHIEVEMENT
+        else -> AdminEntityKind.MISSION
+    }
+
+    val rewardOptions = listOf(10, 20, 50, 100, 200, 500)
+    val missionTypeOptions = listOf("General", "One-time", "Daily", "Weekly")
+    
+    val triggerOptions = listOf(
+        "post_comment" to "Post a comment",
+        "read_rock_info" to "Read rock information",
+        "collect_rock" to "Collect a rock",
+        "upload_photo" to "Upload a photo",
+        "visit_location" to "Visit a location",
+        "complete_mission" to "Complete a mission"
+    )
+    val triggerMenuExpanded = remember { mutableStateOf(false) }
+
+    val startOptions = listOf("none", "today", "signup", "custom_existing")
+    val startOptionLabels = mapOf(
+        "none" to "No start",
+        "today" to "Start today",
+        "signup" to "User registration date",
+        "custom_existing" to "Keep existing start date"
+    )
+
+    val endOptions = listOf("none", "7d", "30d", "custom_existing")
+    val endOptionLabels = mapOf(
+        "none" to "No end",
+        "7d" to "End in 7 days",
+        "30d" to "End in 30 days",
+        "custom_existing" to "Keep existing end date"
+    )
+
+    val titleState =
+        remember { mutableStateOf(initialMission?.title ?: initialAchievement?.title ?: "") }
+    val descriptionState = remember {
+        mutableStateOf(
+            initialMission?.description ?: initialAchievement?.description ?: ""
+        )
+    }
+
+    val initialReward = initialMission?.rewardPoints
+        ?: initialAchievement?.rewardPoints
+        ?: rewardOptions.first()
+    val rewardState = remember { mutableIntStateOf(initialReward) }
+    val rewardMenuExpanded = remember { mutableStateOf(false) }
+
+    val initialTarget = initialMission?.target ?: initialAchievement?.target ?: 0
+    val targetTextState =
+        remember { mutableStateOf(if (initialTarget > 0) initialTarget.toString() else "") }
+
+    val initialTrigger = initialMission?.trigger ?: initialAchievement?.trigger ?: ""
+    val triggerState = remember { mutableStateOf(initialTrigger) }
+    val triggerDisplayLabel = remember(triggerState.value) {
+        triggerOptions.find { it.first == triggerState.value }?.second ?: triggerState.value.ifBlank { "Select trigger condition" }
+    }
+
+    val rockIdInitial = initialMission?.rockId ?: initialAchievement?.rockId
+    val rockIdTextState = remember { mutableStateOf(rockIdInitial?.toString().orEmpty()) }
+
+    val missionTypeInitial =
+        initialMission?.type?.takeIf { it.isNotBlank() } ?: missionTypeOptions.first()
+    val missionTypeState = remember { mutableStateOf(missionTypeInitial) }
+    val missionTypeMenuExpanded = remember { mutableStateOf(false) }
+
+    val initialStartOption = when {
+        initialMission == null || initialMission.startAt == 0L -> "none"
+        initialMission.startAt < 0L -> "signup"
+        else -> "custom_existing"
+    }
+    val startOptionState = remember { mutableStateOf(initialStartOption) }
+    val startMenuExpanded = remember { mutableStateOf(false) }
+
+    val initialEndOption = when {
+        initialMission == null || initialMission.endAt == 0L -> "none"
+        else -> "custom_existing"
+    }
+    val endOptionState = remember { mutableStateOf(initialEndOption) }
+    val endMenuExpanded = remember { mutableStateOf(false) }
+
+    val kindState = remember { mutableStateOf(initialKind) }
+    val saveErrorState = remember { mutableStateOf<String?>(null) }
+
+    androidx.compose.ui.window.Dialog(onDismissRequest = onDismiss) {
+        Card(
+            modifier = Modifier
+                .fillMaxWidth(0.94f)
+                .padding(horizontal = 12.dp, vertical = 24.dp),
+            colors = CardDefaults.cardColors(containerColor = Color.White),
+            shape = RoundedCornerShape(18.dp)
+        ) {
+            val scrollState = rememberScrollState()
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 600.dp)
+                    .verticalScroll(scrollState)
+                    .padding(horizontal = 20.dp, vertical = 20.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Text(
+                    text = if (isEditingMission || isEditingAchievement) "Edit Mission / Achievement" else "Add Mission / Achievement",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = TextDark
+                )
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    val missionSelected = kindState.value == AdminEntityKind.MISSION
+                    val achievementSelected = kindState.value == AdminEntityKind.ACHIEVEMENT
+                    TextButton(
+                        onClick = {
+                            if (canSwitchType) {
+                                kindState.value = AdminEntityKind.MISSION
+                            }
+                        },
+                        enabled = canSwitchType || missionSelected
+                    ) {
+                        Text(
+                            text = "Mission",
+                            fontWeight = if (missionSelected) FontWeight.SemiBold else FontWeight.Normal
+                        )
+                    }
+                    TextButton(
+                        onClick = {
+                            if (canSwitchType) {
+                                kindState.value = AdminEntityKind.ACHIEVEMENT
+                            }
+                        },
+                        enabled = canSwitchType || achievementSelected
+                    ) {
+                        Text(
+                            text = "Achievement",
+                            fontWeight = if (achievementSelected) FontWeight.SemiBold else FontWeight.Normal
+                        )
+                    }
+                }
+
+                OutlinedTextField(
+                    value = titleState.value,
+                    onValueChange = { titleState.value = it },
+                    label = { Text("Title") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true
+                )
+
+                OutlinedTextField(
+                    value = descriptionState.value,
+                    onValueChange = { descriptionState.value = it },
+                    label = { Text("Description") },
+                    modifier = Modifier.fillMaxWidth(),
+                    minLines = 3
+                )
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Reward points",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = TextDark.copy(alpha = 0.8f)
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Box {
+                            TextButton(onClick = { rewardMenuExpanded.value = true }) {
+                                Text("${rewardState.intValue} pts")
+                            }
+                            DropdownMenu(
+                                expanded = rewardMenuExpanded.value,
+                                onDismissRequest = { rewardMenuExpanded.value = false }
+                            ) {
+                                rewardOptions.forEach { option ->
+                                    DropdownMenuItem(
+                                        text = { Text("$option pts") },
+                                        onClick = {
+                                            rewardState.intValue = option
+                                            rewardMenuExpanded.value = false
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    Column(modifier = Modifier.weight(1f)) {
+                        OutlinedTextField(
+                            value = targetTextState.value,
+                            onValueChange = { new ->
+                                targetTextState.value = new.filter { it.isDigit() }
+                            },
+                            label = { Text("Target") },
+                            singleLine = true
+                        )
+                    }
+                }
+
+                Column {
+                    Text(
+                        text = "Trigger condition",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextDark.copy(alpha = 0.8f)
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Box {
+                        OutlinedTextField(
+                            value = triggerDisplayLabel,
+                            onValueChange = { },
+                            readOnly = true,
+                            label = { Text("Select trigger condition") },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { triggerMenuExpanded.value = true },
+                            trailingIcon = {
+                                IconButton(onClick = { triggerMenuExpanded.value = true }) {
+                                    Icon(
+                                        imageVector = Icons.Filled.ArrowDropDown,
+                                        contentDescription = "Open trigger menu"
+                                    )
+                                }
+                            }
+                        )
+                        DropdownMenu(
+                            expanded = triggerMenuExpanded.value,
+                            onDismissRequest = { triggerMenuExpanded.value = false },
+                            modifier = Modifier.heightIn(max = 320.dp)
+                        ) {
+                            triggerOptions.forEach { (key, label) ->
+                                DropdownMenuItem(
+                                    text = { Text(label) },
+                                    onClick = {
+                                        triggerState.value = key
+                                        triggerMenuExpanded.value = false
+                                    }
+                                )
+                            }
+                        }
+                    }
+                }
+
+                OutlinedTextField(
+                    value = rockIdTextState.value,
+                    onValueChange = { new ->
+                        rockIdTextState.value = new.filter { it.isDigit() }
+                    },
+                    label = { Text("Rock ID (optional)") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true
+                )
+
+                if (kindState.value == AdminEntityKind.MISSION) {
+                    Text(
+                        text = "Mission settings",
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = TextDark
+                    )
+
+                    Column {
+                        Text(
+                            text = "Type",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = TextDark.copy(alpha = 0.8f)
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Box {
+                            TextButton(onClick = { missionTypeMenuExpanded.value = true }) {
+                                Text(missionTypeState.value)
+                            }
+                            DropdownMenu(
+                                expanded = missionTypeMenuExpanded.value,
+                                onDismissRequest = { missionTypeMenuExpanded.value = false }
+                            ) {
+                                missionTypeOptions.forEach { option ->
+                                    DropdownMenuItem(
+                                        text = { Text(option) },
+                                        onClick = {
+                                            missionTypeState.value = option
+                                            missionTypeMenuExpanded.value = false
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Start at",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = TextDark.copy(alpha = 0.8f)
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Box {
+                                val label = startOptionLabels[startOptionState.value] ?: "No start"
+                                TextButton(onClick = { startMenuExpanded.value = true }) {
+                                    Text(label)
+                                }
+                                DropdownMenu(
+                                    expanded = startMenuExpanded.value,
+                                    onDismissRequest = { startMenuExpanded.value = false }
+                                ) {
+                                    startOptions.forEach { option ->
+                                        val optionLabel = startOptionLabels[option] ?: option
+                                        DropdownMenuItem(
+                                            text = { Text(optionLabel) },
+                                            onClick = {
+                                                startOptionState.value = option
+                                                startMenuExpanded.value = false
+                                            }
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "End at",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = TextDark.copy(alpha = 0.8f)
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Box {
+                                val label = endOptionLabels[endOptionState.value] ?: "No end"
+                                TextButton(onClick = { endMenuExpanded.value = true }) {
+                                    Text(label)
+                                }
+                                DropdownMenu(
+                                    expanded = endMenuExpanded.value,
+                                    onDismissRequest = { endMenuExpanded.value = false }
+                                ) {
+                                    endOptions.forEach { option ->
+                                        val optionLabel = endOptionLabels[option] ?: option
+                                        DropdownMenuItem(
+                                            text = { Text(optionLabel) },
+                                            onClick = {
+                                                endOptionState.value = option
+                                                endMenuExpanded.value = false
+                                            }
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                saveErrorState.value?.let { errorMsg ->
+                    Text(
+                        text = errorMsg,
+                        color = Color(0xFFB00020),
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End
+                ) {
+                    TextButton(onClick = onDismiss) {
+                        Text("Cancel")
+                    }
+                    Spacer(modifier = Modifier.width(8.dp))
+                    TextButton(onClick = {
+                        saveErrorState.value = null
+                        val title = titleState.value.trim()
+                        val description = descriptionState.value.trim()
+                        val trigger = triggerState.value.trim()
+                        val target = targetTextState.value.toIntOrNull() ?: 0
+                        val reward = rewardState.intValue
+                        val rockId = rockIdTextState.value.toIntOrNull()
+
+                        when {
+                            title.isBlank() -> {
+                                saveErrorState.value = "Title is required."
+                                return@TextButton
+                            }
+                            description.isBlank() -> {
+                                saveErrorState.value = "Description is required."
+                                return@TextButton
+                            }
+                            target <= 0 -> {
+                                saveErrorState.value = "Target must be greater than 0."
+                                return@TextButton
+                            }
+                            trigger.isBlank() -> {
+                                saveErrorState.value = "Trigger condition is required."
+                                return@TextButton
+                            }
+                        }
+
+                        val now = System.currentTimeMillis()
+                        val millisPerDay = 24L * 60L * 60L * 1000L
+
+                        if (kindState.value == AdminEntityKind.MISSION) {
+                            val startAt = when (startOptionState.value) {
+                                "none" -> 0L
+                                "today" -> now
+                                "signup" -> -1L
+                                "custom_existing" -> initialMission?.startAt ?: 0L
+                                else -> 0L
+                            }
+                            val endAt = when (endOptionState.value) {
+                                "none" -> 0L
+                                "7d" -> now + 7L * millisPerDay
+                                "30d" -> now + 30L * millisPerDay
+                                "custom_existing" -> initialMission?.endAt ?: 0L
+                                else -> 0L
+                            }
+                            val mission = MissionDefinition(
+                                id = initialMission?.id.orEmpty(),
+                                title = title,
+                                description = description,
+                                type = missionTypeState.value,
+                                target = target,
+                                rewardPoints = reward,
+                                startAt = startAt,
+                                endAt = endAt,
+                                trigger = trigger,
+                                rockId = rockId
+                            )
+                            onSaveMission(mission)
+                        } else {
+                            val achievement = AchievementDefinition(
+                                id = initialAchievement?.id.orEmpty(),
+                                title = title,
+                                description = description,
+                                target = target,
+                                rewardPoints = reward,
+                                trigger = trigger,
+                                rockId = rockId
+                            )
+                            onSaveAchievement(achievement)
+                        }
+                    }) {
+                        Text("Save")
+                    }
+                }
+            }
+        }
     }
 }

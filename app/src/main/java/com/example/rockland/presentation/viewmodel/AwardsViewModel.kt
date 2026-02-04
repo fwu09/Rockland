@@ -23,6 +23,7 @@ data class AwardsUiState(
     val missions: List<MissionWithProgress> = emptyList(),
     val completedMissions: List<MissionWithProgress> = emptyList(),
     val completedAchievements: List<AchievementDefinition> = emptyList(),
+    val allAchievements: List<AchievementDefinition> = emptyList(),
     val missionsSummary: String = "0/0",
     val achievementsSummary: String = "0/0"
 )
@@ -86,11 +87,53 @@ class AwardsViewModel(
                     missions = missionUi,
                     completedMissions = completedMissions,
                     completedAchievements = completedAchievements,
+                    allAchievements = achievements,
                     missionsSummary = "${completedMissions.size}/${missions.size}",
                     achievementsSummary = "${completedAchievements.size}/${achievements.size}"
                 )
-            } catch (_: Throwable) {
+            } catch (e: Throwable) {
+                android.util.Log.e("AwardsViewModel", "loadAwards failed", e)
                 _uiState.value = _uiState.value.copy(isLoading = false)
+            }
+        }
+    }
+
+    fun upsertMission(definition: MissionDefinition) {
+        viewModelScope.launch {
+            try {
+                repository.upsertMission(definition)
+                loadAwards()
+            } catch (_: Throwable) {
+            }
+        }
+    }
+
+    fun deleteMission(missionId: String) {
+        viewModelScope.launch {
+            try {
+                repository.deleteMission(missionId)
+                loadAwards()
+            } catch (_: Throwable) {
+            }
+        }
+    }
+
+    fun upsertAchievement(definition: AchievementDefinition) {
+        viewModelScope.launch {
+            try {
+                repository.upsertAchievement(definition)
+                loadAwards()
+            } catch (_: Throwable) {
+            }
+        }
+    }
+
+    fun deleteAchievement(achievementId: String) {
+        viewModelScope.launch {
+            try {
+                repository.deleteAchievement(achievementId)
+                loadAwards()
+            } catch (_: Throwable) {
             }
         }
     }
