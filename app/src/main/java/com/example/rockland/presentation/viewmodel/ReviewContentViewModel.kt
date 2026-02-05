@@ -206,97 +206,163 @@ class ReviewContentViewModel(
 
     fun approveComment(comment: LocationComment, reviewerId: String?) {
         viewModelScope.launch {
-            repository.updateCommentStatus(comment.locationId, comment.commentId, ContentStatus.APPROVED, reviewerId)
-            if (comment.userId.isNotBlank()) {
-                repository.addUserNotification(
-                    userId = comment.userId,
-                    title = "Comment Approved",
-                    message = "Your comment was approved by a verified expert.",
-                    targetTab = "map",
-                    targetLocationId = comment.locationId
+            try {
+                repository.updateCommentStatus(
+                    comment.locationId,
+                    comment.commentId,
+                    ContentStatus.APPROVED,
+                    reviewerId
                 )
+                if (comment.userId.isNotBlank()) {
+                    repository.addUserNotification(
+                        userId = comment.userId,
+                        title = "Comment Approved",
+                        message = "Your comment was approved by a verified expert.",
+                        targetTab = "map",
+                        targetLocationId = comment.locationId
+                    )
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("ReviewContentViewModel", "Failed to approve comment", e)
+            } finally {
+                refresh()
             }
-            refresh()
         }
     }
 
     fun rejectComment(comment: LocationComment, reviewerId: String?) {
         viewModelScope.launch {
-            repository.updateCommentStatus(comment.locationId, comment.commentId, ContentStatus.REJECTED, reviewerId)
-            if (comment.userId.isNotBlank()) {
-                repository.addUserNotification(
-                    userId = comment.userId,
-                    title = "Comment Rejected",
-                    message = "Your comment was rejected by a verified expert.",
-                    targetTab = "map",
-                    targetLocationId = comment.locationId
+            try {
+                repository.updateCommentStatus(
+                    comment.locationId,
+                    comment.commentId,
+                    ContentStatus.REJECTED,
+                    reviewerId
                 )
+                if (comment.userId.isNotBlank()) {
+                    repository.addUserNotification(
+                        userId = comment.userId,
+                        title = "Comment Rejected",
+                        message = "Your comment was rejected by a verified expert.",
+                        targetTab = "map",
+                        targetLocationId = comment.locationId
+                    )
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("ReviewContentViewModel", "Failed to reject comment", e)
+            } finally {
+                refresh()
             }
-            refresh()
         }
     }
 
     fun approvePhotos(photos: List<LocationPhoto>, reviewerId: String?) {
         viewModelScope.launch {
-            photos.forEach { photo ->
-                repository.updatePhotoStatus(photo.locationId, photo.locationPhotoId, ContentStatus.APPROVED, reviewerId)
-                if (photo.userId.isNotBlank()) {
-                    repository.addUserNotification(
-                        userId = photo.userId,
-                        title = "Image Approved",
-                        message = "Your image submission was approved by a verified expert.",
-                        targetTab = "map",
-                        targetLocationId = photo.locationId
-                    )
+            try {
+                photos.forEach { photo ->
+                    try {
+                        repository.updatePhotoStatus(
+                            photo.locationId,
+                            photo.locationPhotoId,
+                            ContentStatus.APPROVED,
+                            reviewerId
+                        )
+                        if (photo.userId.isNotBlank()) {
+                            repository.addUserNotification(
+                                userId = photo.userId,
+                                title = "Image Approved",
+                                message = "Your image submission was approved by a verified expert.",
+                                targetTab = "map",
+                                targetLocationId = photo.locationId
+                            )
+                        }
+                    } catch (e: Exception) {
+                        android.util.Log.e(
+                            "ReviewContentViewModel",
+                            "Failed to approve photo ${photo.locationPhotoId}",
+                            e
+                        )
+                    }
                 }
+            } catch (e: Exception) {
+                android.util.Log.e("ReviewContentViewModel", "Failed to approve photos batch", e)
+            } finally {
+                refresh()
             }
-            refresh()
         }
     }
 
     fun rejectPhotos(photos: List<LocationPhoto>, reviewerId: String?) {
         viewModelScope.launch {
-            photos.forEach { photo ->
-                repository.updatePhotoStatus(photo.locationId, photo.locationPhotoId, ContentStatus.REJECTED, reviewerId)
-                if (photo.userId.isNotBlank()) {
-                    repository.addUserNotification(
-                        userId = photo.userId,
-                        title = "Image Rejected",
-                        message = "Your image submission was rejected by a verified expert.",
-                        targetTab = "map",
-                        targetLocationId = photo.locationId
-                    )
+            try {
+                photos.forEach { photo ->
+                    try {
+                        repository.updatePhotoStatus(
+                            photo.locationId,
+                            photo.locationPhotoId,
+                            ContentStatus.REJECTED,
+                            reviewerId
+                        )
+                        if (photo.userId.isNotBlank()) {
+                            repository.addUserNotification(
+                                userId = photo.userId,
+                                title = "Image Rejected",
+                                message = "Your image submission was rejected by a verified expert.",
+                                targetTab = "map",
+                                targetLocationId = photo.locationId
+                            )
+                        }
+                    } catch (e: Exception) {
+                        android.util.Log.e(
+                            "ReviewContentViewModel",
+                            "Failed to reject photo ${photo.locationPhotoId}",
+                            e
+                        )
+                    }
                 }
+            } catch (e: Exception) {
+                android.util.Log.e("ReviewContentViewModel", "Failed to reject photos batch", e)
+            } finally {
+                refresh()
             }
-            refresh()
         }
     }
 
     fun approveRockRequest(request: RockDictionaryRequest, reviewerId: String?) {
         viewModelScope.launch {
-            repository.approveRockDictionaryRequest(request, reviewerId)
-            if (request.submittedById.isNotBlank()) {
-                repository.addUserNotification(
-                    userId = request.submittedById,
-                    title = "Rock Dictionary Update Approved",
-                    message = "Your rock dictionary submission was approved by an admin."
-                )
+            try {
+                repository.approveRockDictionaryRequest(request, reviewerId)
+                if (request.submittedById.isNotBlank()) {
+                    repository.addUserNotification(
+                        userId = request.submittedById,
+                        title = "Rock Dictionary Update Approved",
+                        message = "Your rock dictionary submission was approved by an admin."
+                    )
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("ReviewContentViewModel", "Failed to approve rock request", e)
+            } finally {
+                refresh()
             }
-            refresh()
         }
     }
 
     fun rejectRockRequest(request: RockDictionaryRequest, reviewerId: String?) {
         viewModelScope.launch {
-            repository.rejectRockDictionaryRequest(request, reviewerId)
-            if (request.submittedById.isNotBlank()) {
-                repository.addUserNotification(
-                    userId = request.submittedById,
-                    title = "Rock Dictionary Update Rejected",
-                    message = "Your rock dictionary submission was rejected by an admin."
-                )
+            try {
+                repository.rejectRockDictionaryRequest(request, reviewerId)
+                if (request.submittedById.isNotBlank()) {
+                    repository.addUserNotification(
+                        userId = request.submittedById,
+                        title = "Rock Dictionary Update Rejected",
+                        message = "Your rock dictionary submission was rejected by an admin."
+                    )
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("ReviewContentViewModel", "Failed to reject rock request", e)
+            } finally {
+                refresh()
             }
-            refresh()
         }
     }
 
