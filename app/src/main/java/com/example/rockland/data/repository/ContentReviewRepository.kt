@@ -292,6 +292,41 @@ class ContentReviewRepository(
         return (current + 1L).toInt()
     }
 
+    data class InboxSeenState(
+        val pendingCommentCount: Int = 0,
+        val pendingPhotoCount: Int = 0,
+        val pendingRockCount: Int = 0,
+        val pendingHelpCount: Int = 0
+    )
+
+    suspend fun fetchInboxSeenState(userId: String): InboxSeenState {
+        if (userId.isBlank()) return InboxSeenState()
+        val doc = usersRef.document(userId).get().await()
+        return InboxSeenState(
+            pendingCommentCount = (doc.getLong("inboxSeenPendingCommentCount") ?: 0L).toInt(),
+            pendingPhotoCount = (doc.getLong("inboxSeenPendingPhotoCount") ?: 0L).toInt(),
+            pendingRockCount = (doc.getLong("inboxSeenPendingRockCount") ?: 0L).toInt(),
+            pendingHelpCount = (doc.getLong("inboxSeenPendingHelpCount") ?: 0L).toInt()
+        )
+    }
+
+    suspend fun updateInboxSeenState(
+        userId: String,
+        pendingCommentCount: Int? = null,
+        pendingPhotoCount: Int? = null,
+        pendingRockCount: Int? = null,
+        pendingHelpCount: Int? = null
+    ) {
+        if (userId.isBlank()) return
+        val updates = mutableMapOf<String, Any>()
+        pendingCommentCount?.let { updates["inboxSeenPendingCommentCount"] = it }
+        pendingPhotoCount?.let { updates["inboxSeenPendingPhotoCount"] = it }
+        pendingRockCount?.let { updates["inboxSeenPendingRockCount"] = it }
+        pendingHelpCount?.let { updates["inboxSeenPendingHelpCount"] = it }
+        if (updates.isEmpty()) return
+        usersRef.document(userId).set(updates, com.google.firebase.firestore.SetOptions.merge()).await()
+    }
+
     suspend fun fetchUserNotifications(userId: String): List<UserNotification> {
         if (userId.isBlank()) return emptyList()
         val snapshot = usersRef.document(userId)

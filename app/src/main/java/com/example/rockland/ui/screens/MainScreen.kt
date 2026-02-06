@@ -137,11 +137,24 @@ fun MainScreenContent(
                     onProfileClick = { onTabSelected(5) },
                     onGoToPage = { notification ->
                         val targetTab = notification.targetTab?.trim()?.lowercase()
-                        if (targetTab == "map") {
-                            onTabSelected(1)
-                            val locationId = notification.targetLocationId.orEmpty()
-                            if (locationId.isNotBlank()) {
-                                mapViewModel.focusLocation(locationId)
+                        when (targetTab) {
+                            "map" -> {
+                                onTabSelected(1)
+                                val locationId = notification.targetLocationId.orEmpty()
+                                if (locationId.isNotBlank()) {
+                                    mapViewModel.focusLocation(locationId)
+                                }
+                            }
+                            "dictionary" -> {
+                                collectionTabIndex.intValue = 1
+                                onTabSelected(0)
+                            }
+                            else -> {
+                                if (notification.type == "rock_dictionary_approved" ||
+                                    notification.title == "Rock Dictionary Update Approved") {
+                                    collectionTabIndex.intValue = 1
+                                    onTabSelected(0)
+                                }
                             }
                         }
                     },
