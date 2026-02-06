@@ -66,6 +66,8 @@ class ReviewContentViewModel(
 
     private val _userId = MutableStateFlow<String?>(null)
     private val _role = MutableStateFlow("nature_enthusiast")
+    private val _isLoading = MutableStateFlow(false)
+    val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
 
     fun bindUser(userId: String?, role: String?) {
         val normalizedRole = role?.trim()?.lowercase() ?: "nature_enthusiast"
@@ -79,6 +81,7 @@ class ReviewContentViewModel(
 
     fun refresh() {
         viewModelScope.launch {
+            _isLoading.value = true
             try {
                 val comments = repository.fetchPendingComments()
                 val photos = repository.fetchPendingPhotos()
@@ -109,6 +112,8 @@ class ReviewContentViewModel(
                 _pendingRockRequests.value = emptyList()
                 _pendingHelpRequests.value = emptyList()
                 _notifications.value = emptyList()
+            } finally {
+                _isLoading.value = false
             }
         }
     }
@@ -122,6 +127,7 @@ class ReviewContentViewModel(
         val role = _role.value
         val userId = _userId.value
         if (role == "verified_expert") {
+            val seen = if (!userId.isNullOrBlank()) repository.fetchInboxSeenState(userId) else ContentReviewRepository.InboxSeenState()
             val notifications = buildList {
                 if (pendingComments.isNotEmpty()) {
                     add(
@@ -130,7 +136,7 @@ class ReviewContentViewModel(
                             title = "New Comment Pending",
                             message = "You have ${pendingComments.size} comments waiting for review.",
                             date = "Today",
-                            isRead = false
+                            isRead = pendingComments.size <= seen.pendingCommentCount
                         )
                     )
                 }
@@ -141,7 +147,7 @@ class ReviewContentViewModel(
                             title = "New Image Submission",
                             message = "You have ${pendingPhotos.size} image submissions waiting for review.",
                             date = "Today",
-                            isRead = false
+                            isRead = pendingPhotos.size <= seen.pendingPhotoCount
                         )
                     )
                 }
@@ -152,6 +158,7 @@ class ReviewContentViewModel(
             }
             _notifications.value = notifications
         } else if (role == "admin") {
+            val seen = if (!userId.isNullOrBlank()) repository.fetchInboxSeenState(userId) else ContentReviewRepository.InboxSeenState()
             val notifications = buildList {
                 if (pendingRockRequests.isNotEmpty()) {
                     add(
@@ -160,7 +167,7 @@ class ReviewContentViewModel(
                             title = "Rock Dictionary Review",
                             message = "You have ${pendingRockRequests.size} dictionary updates waiting for review.",
                             date = "Today",
-                            isRead = false
+                            isRead = pendingRockRequests.size <= seen.pendingRockCount
                         )
                     )
                 }
@@ -171,13 +178,14 @@ class ReviewContentViewModel(
                             title = "Help Requests",
                             message = "You have ${pendingHelpRequests.size} help request(s) waiting for reply.",
                             date = "Today",
-                            isRead = false
+                            isRead = pendingHelpRequests.size <= seen.pendingHelpCount
                         )
                     )
                 }
             }
             _notifications.value = notifications
         } else if (role == "user_admin") {
+            val seen = if (!userId.isNullOrBlank()) repository.fetchInboxSeenState(userId) else ContentReviewRepository.InboxSeenState()
             val notifications = buildList {
                 if (pendingHelpRequests.isNotEmpty()) {
                     add(
@@ -186,7 +194,7 @@ class ReviewContentViewModel(
                             title = "Help Requests",
                             message = "You have ${pendingHelpRequests.size} help request(s) waiting for reply.",
                             date = "Today",
-                            isRead = false
+                            isRead = pendingHelpRequests.size <= seen.pendingHelpCount
                         )
                     )
                 }
@@ -336,7 +344,9 @@ class ReviewContentViewModel(
                     repository.addUserNotification(
                         userId = request.submittedById,
                         title = "Rock Dictionary Update Approved",
-                        message = "Your rock dictionary submission was approved by an admin."
+                        message = "Your rock dictionary submission was approved by an admin.",
+                        targetTab = "dictionary",
+                        type = "rock_dictionary_approved"
                     )
                 }
             } catch (e: Exception) {
@@ -367,14 +377,28 @@ class ReviewContentViewModel(
     }
 
     fun markNotificationRead(notificationId: String) {
-        val role = _role.value
         val userId = _userId.value
-        if (role == "verified_expert" && notificationId.startsWith("pending_")) return
-        if (role == "admin" && notificationId.startsWith("pending_")) return
-        if (role == "user_admin" && notificationId.startsWith("pending_")) return
         if (userId.isNullOrBlank()) return
         viewModelScope.launch {
-            repository.markNotificationRead(userId, notificationId)
+            when (notificationId) {
+                "pending_comments" -> repository.updateInboxSeenState(
+                    userId = userId,
+                    pendingCommentCount = _pendingComments.value.size
+                )
+                "pending_photos" -> repository.updateInboxSeenState(
+                    userId = userId,
+                    pendingPhotoCount = _pendingPhotos.value.size
+                )
+                "pending_rock_dictionary" -> repository.updateInboxSeenState(
+                    userId = userId,
+                    pendingRockCount = _pendingRockRequests.value.size
+                )
+                "pending_help_requests" -> repository.updateInboxSeenState(
+                    userId = userId,
+                    pendingHelpCount = _pendingHelpRequests.value.size
+                )
+                else -> repository.markNotificationRead(userId, notificationId)
+            }
             refresh()
         }
     }
