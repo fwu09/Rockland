@@ -77,6 +77,7 @@ class RockLocationRepository(
             LocationComment(
                 commentId = doc.id,
                 locationId = doc.getString("locationId") ?: locationId,
+                locationName = doc.getString("locationName") ?: "",
                 userId = doc.getString("userId") ?: "",
                 author = doc.getString("author") ?: "Unknown",
                 text = doc.getString("text") ?: "",
@@ -101,6 +102,7 @@ class RockLocationRepository(
             LocationPhoto(
                 locationPhotoId = doc.id,
                 locationId = doc.getString("locationId") ?: locationId,
+                locationName = doc.getString("locationName") ?: "",
                 commentId = doc.getString("commentId"),
                 userId = doc.getString("userId") ?: "",
                 author = doc.getString("author") ?: "Unknown", //change for prod env
@@ -132,12 +134,14 @@ class RockLocationRepository(
 
     suspend fun addComment(
         locationId: String,
+        locationName: String,
         userId: String,
         author: String,
         text: String
     ): String {
         val payload = mapOf(
             "locationId" to locationId,
+            "locationName" to locationName,
             "userId" to userId,
             "author" to author,
             "text" to text,
@@ -164,6 +168,7 @@ class RockLocationRepository(
 
     suspend fun addPhoto(
         locationId: String,
+        locationName: String,
         commentId: String?, // allow photos not attached to a comment too
         userId: String,
         author: String,
@@ -172,6 +177,7 @@ class RockLocationRepository(
     ) {
         val payload = mapOf(
             "locationId" to locationId,
+            "locationName" to locationName,
             "commentId" to commentId,
             "userId" to userId,
             "author" to author,
@@ -222,6 +228,7 @@ class RockLocationRepository(
     @Suppress("unused")
     suspend fun addCommentWithPhotos(
         locationId: String,
+        locationName: String,
         userId: String,
         author: String,
         text: String,
@@ -229,10 +236,11 @@ class RockLocationRepository(
         caption: String = ""
     ): String {
 
-        val commentId = addComment(locationId, userId, author, text)
+        val commentId = addComment(locationId, locationName, userId, author, text)
         for (url in photoUrls) {
             addPhoto(
                 locationId = locationId,
+                locationName = locationName,
                 commentId = commentId,
                 userId = userId,
                 author = author,

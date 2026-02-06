@@ -41,6 +41,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import coil.compose.AsyncImage
 import com.example.rockland.ui.theme.TextDark
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.layout.size
 
 enum class ReviewTab {
     COMMENTS,
@@ -63,6 +66,7 @@ data class PendingImageBatch(
     val id: String,
     val batchNumber: String,
     val locationId: String,
+    val commentId: String,
     val userId: String,
     val author: String,
     val submittedAt: String,
@@ -114,6 +118,7 @@ fun ReviewContentScreen(
                     pendingComments.forEach { comment ->
                         CommentReviewCard(
                             comment = comment,
+                            pendingImageBatches = pendingImageBatches,
                             onClick = { selectedComment.value = comment }
                         )
                     }
@@ -144,6 +149,7 @@ fun ReviewContentScreen(
     selectedComment.value?.let { comment ->
         CommentReviewDialog(
             comment = comment,
+            pendingImageBatches = pendingImageBatches,
             onApprove = {
                 onApproveComment(comment)
                 selectedComment.value = null
@@ -229,8 +235,13 @@ private fun ReviewTabSelector(
 @Composable
 private fun CommentReviewCard(
     comment: PendingComment,
+    pendingImageBatches: List<PendingImageBatch>,
     onClick: () -> Unit
 ) {
+    val attachedUrls = pendingImageBatches
+        .filter { it.commentId == comment.id }
+        .flatMap { it.imageUrls }
+
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -268,7 +279,7 @@ private fun CommentReviewCard(
                 color = TextDark.copy(alpha = 0.7f)
             )
             Text(
-                text = comment.location,
+                text = "Comment Location: ${comment.location}",
                 style = MaterialTheme.typography.bodySmall,
                 color = TextDark.copy(alpha = 0.8f)
             )
@@ -277,6 +288,21 @@ private fun CommentReviewCard(
                 style = MaterialTheme.typography.bodySmall,
                 color = TextDark.copy(alpha = 0.7f)
             )
+
+            if (attachedUrls.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(8.dp))
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    items(attachedUrls) { url ->
+                        AsyncImage(
+                            model = url,
+                            contentDescription = null,
+                            modifier = Modifier
+                                .size(90.dp)
+                                .clip(MaterialTheme.shapes.medium)
+                        )
+                    }
+                }
+            }
         }
     }
 }
@@ -480,13 +506,20 @@ private fun ImageReviewDialog(
     }
 }
 
+
 @Composable
 private fun CommentReviewDialog(
     comment: PendingComment,
+    pendingImageBatches: List<PendingImageBatch>,
     onApprove: () -> Unit,
     onReject: () -> Unit,
     onClose: () -> Unit
 ) {
+    val attachedUrls = pendingImageBatches
+        .filter { it.commentId == comment.id }
+        .flatMap { it.imageUrls }
+        .take(12) // optional limit
+
     Dialog(onDismissRequest = onClose) {
         Card(
             modifier = Modifier
@@ -520,6 +553,7 @@ private fun CommentReviewDialog(
                         )
                     }
                 }
+
                 Text(
                     text = "Comment Submitted by: ${comment.author}",
                     style = MaterialTheme.typography.bodySmall,
@@ -535,12 +569,38 @@ private fun CommentReviewDialog(
                     style = MaterialTheme.typography.bodySmall,
                     color = Color.White.copy(alpha = 0.8f)
                 )
+
                 HorizontalDivider(color = Color.White.copy(alpha = 0.15f))
+
                 Text(
                     text = comment.fullText,
                     style = MaterialTheme.typography.bodyMedium,
                     color = Color.White
                 )
+
+                if (attachedUrls.isNotEmpty()) {
+                    HorizontalDivider(color = Color.White.copy(alpha = 0.15f))
+                    Text(
+                        text = "Attached images (${attachedUrls.size})",
+                        color = Color.White.copy(alpha = 0.8f),
+                        style = MaterialTheme.typography.bodySmall,
+                        fontWeight = FontWeight.SemiBold
+                    )
+
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        items(attachedUrls) { url ->
+                            AsyncImage(
+                                model = url,
+                                contentDescription = null,
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier
+                                    .size(130.dp)
+                                    .clip(MaterialTheme.shapes.medium)
+                            )
+                        }
+                    }
+                }
+
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween

@@ -47,6 +47,7 @@ class ContentReviewRepository(
             LocationComment(
                 commentId = doc.id,
                 locationId = doc.getString("locationId") ?: "",
+                locationName = doc.getString("locationName") ?: "",
                 userId = doc.getString("userId") ?: "",
                 author = doc.getString("author") ?: "Unknown",
                 text = doc.getString("text") ?: "",
@@ -70,6 +71,7 @@ class ContentReviewRepository(
             LocationPhoto(
                 locationPhotoId = doc.id,
                 locationId = doc.getString("locationId") ?: "",
+                locationName = doc.getString("locationName") ?: "",
                 commentId = doc.getString("commentId"),
                 userId = doc.getString("userId") ?: "",
                 author = doc.getString("author") ?: "Unknown",
@@ -480,7 +482,7 @@ class ContentReviewRepository(
     suspend fun notifyUserHelpReply(userId: String, fullReply: String) {
         addUserNotification(
             userId = userId,
-            title = "Reply to your help request",
+            title = "Rockland Response",
             message = fullReply,
             targetTab = "inbox",
             type = "help_reply"

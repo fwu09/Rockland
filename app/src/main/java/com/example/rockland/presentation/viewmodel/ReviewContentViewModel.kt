@@ -225,7 +225,10 @@ class ReviewContentViewModel(
                     repository.addUserNotification(
                         userId = comment.userId,
                         title = "Comment Approved",
-                        message = "Your comment was approved by a verified expert.",
+                        message = """
+                                 Your comment was approved by a verified expert.
+                                 Comment Location: ${comment.locationName}
+                                 """.trimIndent(),
                         targetTab = "map",
                         targetLocationId = comment.locationId
                     )
@@ -251,7 +254,10 @@ class ReviewContentViewModel(
                     repository.addUserNotification(
                         userId = comment.userId,
                         title = "Comment Rejected",
-                        message = "Your comment was rejected by a verified expert.",
+                        message = """
+                                 Your comment was rejected by a verified expert.
+                                 Comment Location: ${comment.locationName}
+                                 """.trimIndent(),
                         targetTab = "map",
                         targetLocationId = comment.locationId
                     )
@@ -279,7 +285,10 @@ class ReviewContentViewModel(
                             repository.addUserNotification(
                                 userId = photo.userId,
                                 title = "Image Approved",
-                                message = "Your image submission was approved by a verified expert.",
+                                message = """
+                                 Your image submission was approved by a verified expert.
+                                 Comment Location: ${photo.locationName}
+                                 """.trimIndent(),
                                 targetTab = "map",
                                 targetLocationId = photo.locationId
                             )
@@ -315,7 +324,10 @@ class ReviewContentViewModel(
                             repository.addUserNotification(
                                 userId = photo.userId,
                                 title = "Image Rejected",
-                                message = "Your image submission was rejected by a verified expert.",
+                                message = """
+                                        Your image submission was rejected by a verified expert.
+                                        Image Location: ${photo.locationName}
+                                    """.trimIndent(),
                                 targetTab = "map",
                                 targetLocationId = photo.locationId
                             )
@@ -344,9 +356,7 @@ class ReviewContentViewModel(
                     repository.addUserNotification(
                         userId = request.submittedById,
                         title = "Rock Dictionary Update Approved",
-                        message = "Your rock dictionary submission was approved by an admin.",
-                        targetTab = "dictionary",
-                        type = "rock_dictionary_approved"
+                        message = "Your rock dictionary submission was approved by an admin."
                     )
                 }
             } catch (e: Exception) {

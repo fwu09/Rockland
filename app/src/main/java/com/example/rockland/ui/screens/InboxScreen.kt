@@ -155,40 +155,53 @@ fun InboxScreen(
                 userId = comment.userId,
                 author = comment.author,
                 postedAt = formatDate(comment.timestamp),
-                location = "Comment Location",
+                location = comment.locationName,
                 preview = comment.text.take(80),
                 fullText = comment.text
             )
         }
     }
+
+    // Group pending photos by commentId if present,
+    // otherwise group by location+user (for standalone photo uploads)
     val photoGroup = remember(pendingPhotos) {
-        pendingPhotos.groupBy { "${it.locationId}|${it.userId}" }
+        pendingPhotos.groupBy { photo ->
+            val cid = photo.commentId?.takeIf { it.isNotBlank() } ?: "no_comment"
+            "${photo.locationId}|${photo.userId}|$cid"
+        }
     }
+
     val pendingImageBatches = remember(pendingPhotos) {
         photoGroup.entries.mapIndexed { index, entry ->
             val photos = entry.value
             val first = photos.first()
+
+            val cid = first.commentId?.takeIf { it.isNotBlank() } ?: ""
+
             PendingImageBatch(
                 id = "batch_${index + 1}",
                 batchNumber = "${index + 1}",
                 locationId = first.locationId,
+                commentId = cid,
                 userId = first.userId,
                 author = first.author,
                 submittedAt = formatDate(first.timestamp),
-                location = "Image Location",
+                location = first.locationName,
                 imageCount = photos.size,
                 imageUrls = photos.map { it.imageUrl },
                 photoIds = photos.map { it.locationPhotoId }
             )
         }
     }
+
     val commentsById = remember(pendingComments) {
         pendingComments.associateBy { it.commentId }
     }
     val photosByBatchId = remember(pendingImageBatches, photoGroup) {
         pendingImageBatches.associate { batch ->
-            val photos = photoGroup["${batch.locationId}|${batch.userId}"].orEmpty()
-            batch.id to photos
+            val cidKey = batch.commentId.takeIf { it.isNotBlank() } ?: "no_comment"
+            val key = "${batch.locationId}|${batch.userId}|$cidKey"
+            batch.id to photoGroup[key].orEmpty()
         }
     }
 
