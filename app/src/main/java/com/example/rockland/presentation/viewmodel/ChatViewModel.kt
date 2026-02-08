@@ -95,6 +95,22 @@ class ChatViewModel(
         viewModelScope.launch { repository.deleteMessage(convId, messageId) }
     }
 
+    // Inbox-only: removes conversation from list; does not remove friendship.
+    fun deleteConversation(conversationId: String) {
+        val uid = _uiState.value.currentUserId
+        if (uid.isBlank()) return
+        viewModelScope.launch {
+            repository.deleteConversation(conversationId).fold(
+                onSuccess = {
+                    if (_uiState.value.activeConversationId == conversationId) {
+                        closeConversation()
+                    }
+                },
+                onFailure = { }
+            )
+        }
+    }
+
     class Factory : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T {

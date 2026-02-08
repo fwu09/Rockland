@@ -2493,7 +2493,6 @@ private fun InteractiveNotificationScreen(
     }
 }
 
-// Notification list body (moved from NotificationsDialog) for full-screen Interactive notification page.
 @Composable
 private fun NotificationListContent(
     notifications: List<InboxNotification>,
@@ -2609,7 +2608,6 @@ private fun NotificationListContent(
     }
 }
 
-// Content review tab: same entry cards as former Help desk block (VE/Admin), opens same screens on tap.
 @Composable
 private fun ContentReviewTabContent(
     isVerifiedExpert: Boolean,
@@ -2697,7 +2695,6 @@ private fun ContentReviewTabContent(
     }
 }
 
-// Fixed top row in message area: icon + "Interactive notification" + latest preview + unread badge. Tap opens full-screen.
 @Composable
 private fun InteractiveNotificationRow(
     latestPreview: String,
@@ -2773,6 +2770,7 @@ private fun PrivateMessageArea(
     viewModel: ChatViewModel
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    var convToDelete by remember { mutableStateOf<ChatConversation?>(null) }
 
     if (uiState.conversations.isEmpty()) {
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.TopStart) {
@@ -2793,21 +2791,46 @@ private fun PrivateMessageArea(
             val conv = uiState.conversations[idx]
             ConversationRow(
                 conversation = conv,
-                onClick = { viewModel.openFromConversation(conv) }
+                onClick = { viewModel.openFromConversation(conv) },
+                onLongPress = { convToDelete = conv }
             )
         }
+    }
+
+    val dismissDialog: () -> Unit = { convToDelete = null }
+    convToDelete?.let { conv ->
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = dismissDialog,
+            title = { Text("Remove from inbox") },
+            text = { Text("Remove this chat from your inbox?") },
+            confirmButton = {
+                TextButton(onClick = {
+                    viewModel.deleteConversation(conv.id)
+                    dismissDialog()
+                }) { Text("Remove", color = Color(0xFFE57373)) }
+            },
+            dismissButton = {
+                TextButton(onClick = dismissDialog) { Text("Cancel") }
+            }
+        )
     }
 }
 
 @Composable
 private fun ConversationRow(
     conversation: ChatConversation,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    onLongPress: () -> Unit = {}
 ) {
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable { onClick() },
+            .pointerInput(conversation.id) {
+                detectTapGestures(
+                    onTap = { onClick() },
+                    onLongPress = { onLongPress() }
+                )
+            },
         colors = CardDefaults.cardColors(containerColor = Color.White),
         elevation = CardDefaults.cardElevation(defaultElevation = 3.dp),
         shape = MaterialTheme.shapes.medium
