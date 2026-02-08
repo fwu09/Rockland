@@ -29,5 +29,6 @@ interface FriendsDataRepository {
     suspend fun deleteMessage(conversationId: String, messageId: String): Result<Unit>
     suspend fun startConversation(userId: String, otherUserId: String): String
     suspend fun markConversationRead(userId: String, conversationId: String, lastSeenAtMillis: Long)
+    suspend fun deleteConversation(conversationId: String): Result<Unit>
 }
 

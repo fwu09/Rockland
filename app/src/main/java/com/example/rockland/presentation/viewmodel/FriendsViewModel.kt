@@ -12,6 +12,8 @@ import com.example.rockland.data.repository.FriendsDataRepository
 import com.example.rockland.data.repository.FriendsRepositoryProvider
 import com.example.rockland.presentation.model.UiBanner
 import com.example.rockland.presentation.model.UiBannerType
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -46,6 +48,7 @@ class FriendsViewModel(
 
     private var currentUserId: String = ""
     private var currentDisplayName: String = ""
+    private var searchJob: Job? = null
 
     fun bindUser(userId: String?, displayName: String) {
         currentUserId = userId.orEmpty()
@@ -76,7 +79,16 @@ class FriendsViewModel(
 
     fun updateSearchQuery(query: String) {
         _uiState.update { it.copy(searchQuery = query) }
-        performSearch()
+        searchJob?.cancel()
+        val q = query.trim()
+        if (q.isEmpty()) {
+            _uiState.update { it.copy(searchResults = emptyList(), isSearching = false) }
+            return
+        }
+        searchJob = viewModelScope.launch {
+            delay(300)
+            performSearch()
+        }
     }
 
     private fun performSearch() {

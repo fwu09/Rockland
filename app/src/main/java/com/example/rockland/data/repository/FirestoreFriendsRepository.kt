@@ -27,29 +27,51 @@ class FirestoreFriendsRepository(
     override suspend fun searchUsers(currentUserId: String, query: String): List<UserSummary> {
         val q = query.trim()
         if (q.isBlank()) return emptyList()
-        val snapshot = usersRef
+        val byEmail = usersRef
             .orderBy("email")
             .startAt(q)
             .endAt(q + "\uf8ff")
             .limit(20)
             .get()
             .await()
-        return snapshot.documents
-            .mapNotNull { doc ->
-                val uid = doc.getString("userId") ?: doc.id
-                if (uid == currentUserId) return@mapNotNull null
-                val first = doc.getString("firstName").orEmpty()
-                val last = doc.getString("lastName").orEmpty()
-                val displayName = listOf(first, last)
-                    .filter { it.isNotBlank() }
-                    .joinToString(" ")
-                    .ifBlank { doc.getString("email").orEmpty() }
-                UserSummary(
-                    userId = uid,
-                    displayName = displayName,
-                    email = doc.getString("email").orEmpty()
-                )
-            }
+        val byFirstName = usersRef
+            .orderBy("firstName")
+            .startAt(q)
+            .endAt(q + "\uf8ff")
+            .limit(20)
+            .get()
+            .await()
+        val byLastName = usersRef
+            .orderBy("lastName")
+            .startAt(q)
+            .endAt(q + "\uf8ff")
+            .limit(20)
+            .get()
+            .await()
+        val seen = mutableSetOf<String>()
+        fun mapDoc(doc: com.google.firebase.firestore.DocumentSnapshot): UserSummary? {
+            val uid = doc.getString("userId") ?: doc.id
+            if (uid == currentUserId || seen.contains(uid)) return null
+            val role = doc.getString("role").orEmpty().lowercase()
+            if (role == "admin") return null
+            seen.add(uid)
+            val first = doc.getString("firstName").orEmpty()
+            val last = doc.getString("lastName").orEmpty()
+            val displayName = listOf(first, last)
+                .filter { it.isNotBlank() }
+                .joinToString(" ")
+                .ifBlank { doc.getString("email").orEmpty() }
+            return UserSummary(
+                userId = uid,
+                displayName = displayName,
+                email = doc.getString("email").orEmpty()
+            )
+        }
+        val list = mutableListOf<UserSummary>()
+        for (doc in byEmail.documents) mapDoc(doc)?.let { list.add(it) }
+        if (list.size < 20) for (doc in byFirstName.documents) mapDoc(doc)?.let { list.add(it); if (list.size >= 20) return list }
+        if (list.size < 20) for (doc in byLastName.documents) mapDoc(doc)?.let { list.add(it); if (list.size >= 20) return list }
+        return list.take(20)
     }
 
     override fun getFriendsFlow(userId: String): Flow<List<FriendRelation>> = callbackFlow {
@@ -150,6 +172,15 @@ class FirestoreFriendsRepository(
             if (!accept) throw Exception("User is not accepting friend requests")
 
             val id = "${fromUserId}_${toUserId}"
+            val existing = friendRequestsRef.document(id).get().await()
+            // If old request was accepted/rejected, delete it first so set() is a create (sender cannot update).
+            if (existing.exists()) {
+                val status = existing.getString("status").orEmpty()
+                if (status == "accepted" || status == "rejected") {
+                    friendRequestsRef.document(id).delete().await()
+                }
+            }
+
             val payload = mapOf(
                 "fromUserId" to fromUserId,
                 "toUserId" to toUserId,
@@ -219,6 +250,8 @@ class FirestoreFriendsRepository(
             val users = listOf(userId, friendUserId).sorted()
             val friendshipId = users.joinToString("_")
             friendshipsRef.document(friendshipId).delete().await()
+            val convId = conversationId(userId, friendUserId)
+            conversationsRef.document(convId).delete().await()
         }.fold(onSuccess = { Result.success(Unit) }, onFailure = { Result.failure(it) })
     }
 
@@ -366,6 +399,12 @@ class FirestoreFriendsRepository(
             .document(conversationId)
             .set(mapOf("lastSeenAtMillis" to lastSeenAtMillis), com.google.firebase.firestore.SetOptions.merge())
             .await()
+    }
+
+    override suspend fun deleteConversation(conversationId: String): Result<Unit> {
+        return runCatching {
+            conversationsRef.document(conversationId).delete().await()
+        }.fold(onSuccess = { Result.success(Unit) }, onFailure = { Result.failure(it) })
     }
 }
 
