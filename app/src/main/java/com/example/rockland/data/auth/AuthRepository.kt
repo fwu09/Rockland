@@ -1,5 +1,5 @@
+// Abstraction over Firebase auth flows so ViewModels stay testable.
 package com.example.rockland.data.auth
-
 import com.google.firebase.auth.FirebaseUser
 import kotlinx.coroutines.flow.Flow
 

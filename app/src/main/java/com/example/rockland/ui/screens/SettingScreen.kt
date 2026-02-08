@@ -1,5 +1,5 @@
+// Screen exposing settings-related controls while staying within the UI layer.
 package com.example.rockland.ui.screens
-
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column

@@ -1,48 +1,57 @@
-package com.example.rockland.viewmodel
-// connecting the UI to firebase services
-
+// Keeps the auth/profile wiring inside the ViewModel layer for Compose screens.
+// Lets the UI observe StateFlows without calling Firebase directly.
+package com.example.rockland.presentation.viewmodel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
-import com.example.rockland.data.datasource.remote.FirebaseAuthService
+import com.example.rockland.data.auth.AuthRepository
+import com.example.rockland.data.auth.AuthResult
+import com.example.rockland.data.auth.FirebaseAuthRepository
+import com.example.rockland.data.auth.toUiMessage
 import com.example.rockland.data.datasource.remote.FirebaseUserService
 import com.example.rockland.data.datasource.remote.UserData
+import com.example.rockland.presentation.model.UiBanner
+import com.example.rockland.presentation.model.UiBannerType
+import com.google.firebase.auth.FirebaseUser
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.SharingStarted
 
-// User view model
-
+// Manages Firebase auth flows, profile loading, and banners for the UI.
 class UserViewModel(
-    private val authService: FirebaseAuthService = FirebaseAuthService.getInstance(),
+    private val authRepository: AuthRepository = FirebaseAuthRepository.getInstance(),
     private val userService: FirebaseUserService = FirebaseUserService.getInstance()
 ) : ViewModel() {
 
-    // User data state
+    // Banner messages the UI collects to show alerts.
+    private val _banners = MutableSharedFlow<UiBanner>(extraBufferCapacity = 1)
+    val banners = _banners.asSharedFlow()
+
+    // Stored profile data for Compose screens.
     private val _userData = MutableStateFlow<UserData?>(null)
     val userData: StateFlow<UserData?> = _userData.asStateFlow()
 
-    // Loading state
+    // Shows when an async auth/profile task runs.
     private val _isLoading = MutableStateFlow(false)
     val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
 
-    // Error state
-    private val _error = MutableStateFlow<String?>(null)
-    val error: StateFlow<String?> = _error.asStateFlow()
-
-    // Success notification state
-    private val _successMessage = MutableStateFlow<String?>(null)
-    val successMessage: StateFlow<String?> = _successMessage.asStateFlow()
-
     // Auth state
-    val isLoggedIn = authService.isLoggedIn
-    val currentUser = authService.currentUser
+    val currentUser: StateFlow<FirebaseUser?> =
+        authRepository.authState.stateIn(viewModelScope, SharingStarted.Eagerly, null)
+
+    val isLoggedIn: StateFlow<Boolean> =
+        currentUser.map { it != null }.stateIn(viewModelScope, SharingStarted.Eagerly, false)
 
     init {
-        // Load user data when logged in
+        // Sync profile data whenever authentication changes.
         viewModelScope.launch {
-            authService.currentUser.collect { user ->
+            currentUser.collect { user ->
                 if (user != null) {
                     android.util.Log.d(
                         "UserViewModel",
@@ -73,35 +82,32 @@ class UserViewModel(
         }
     }
 
-    // TODO: CRITICAL - Firebase authentication currently failing, needs App Check configuration
-    // Register a new user - Firebase will automatically log in the user
+    // Registers a user and creates the Firestore profile document.
     fun registerUser(email: String, password: String, firstName: String, lastName: String) {
         viewModelScope.launch {
             try {
                 _isLoading.value = true
-                _error.value = null
 
                 android.util.Log.d("UserViewModel", "Starting registration for: $email")
 
-                // Create Firebase Auth user
-                val user = authService.registerUser(email, password)
+                when (val auth = authRepository.signUpWithEmail(email, password)) {
+                    is AuthResult.Success -> {
+                        val user = auth.value
+                        android.util.Log.d("UserViewModel", "Auth user created, uid: ${user.uid}")
 
-                if (user != null) {
-                    android.util.Log.d("UserViewModel", "Auth user created, uid: ${user.uid}")
+                        userService.createUserProfile(user, firstName, lastName)
+                        android.util.Log.d("UserViewModel", "Firestore profile created")
 
-                    // Create Firestore user profile
-                    userService.createUserProfile(user, firstName, lastName)
-                    android.util.Log.d("UserViewModel", "Firestore profile created")
-
-                    // The auth state listener in init{} will automatically load user data
-                    _successMessage.value = "Registration successful!"
-                    android.util.Log.d("UserViewModel", "Registration completed successfully")
-                } else {
-                    _error.value = "Registration failed: User creation returned null"
-                    android.util.Log.e("UserViewModel", "Registration failed: user is null")
+                        showSuccess("Registration successful!")
+                        android.util.Log.d("UserViewModel", "Registration completed successfully")
+                    }
+                    is AuthResult.Error -> {
+                        showError(auth.error.toUiMessage())
+                        android.util.Log.e("UserViewModel", "Registration failed: ${auth.error.debugMessage}", auth.error.throwable)
+                    }
                 }
             } catch (e: Exception) {
-                _error.value = e.message ?: "Registration failed"
+                showError("Registration failed.")
                 android.util.Log.e("UserViewModel", "Registration error: ${e.message}", e)
             } finally {
                 _isLoading.value = false
@@ -109,25 +115,26 @@ class UserViewModel(
         }
     }
 
-    // Login user
+    // Signs in so the auth listener can load the profile.
     fun loginUser(email: String, password: String) {
         viewModelScope.launch {
             try {
                 _isLoading.value = true
-                _error.value = null
 
                 android.util.Log.d("UserViewModel", "Attempting login for: $email")
-                val user = authService.loginUser(email, password)
-
-                if (user != null) {
-                    android.util.Log.d("UserViewModel", "Login successful, uid: ${user.uid}")
-                    // The auth state listener in init{} will automatically load user data
-                } else {
-                    _error.value = "Login failed: User returned null"
-                    android.util.Log.e("UserViewModel", "Login failed: User returned null")
+                when (val auth = authRepository.signInWithEmail(email, password)) {
+                    is AuthResult.Success -> {
+                        android.util.Log.d("UserViewModel", "Login successful, uid: ${auth.value.uid}")
+                        showSuccess("Signed in.")
+                        // The auth state listener in init{} will automatically load user data
+                    }
+                    is AuthResult.Error -> {
+                        showError(auth.error.toUiMessage())
+                        android.util.Log.e("UserViewModel", "Login failed: ${auth.error.debugMessage}", auth.error.throwable)
+                    }
                 }
             } catch (e: Exception) {
-                _error.value = e.message ?: "Login failed"
+                showError("Login failed.")
                 android.util.Log.e("UserViewModel", "Login error: ${e.message}", e)
             } finally {
                 _isLoading.value = false
@@ -135,36 +142,35 @@ class UserViewModel(
         }
     }
 
-    // Logout user
+    // Signs out and notifies the UI via a banner.
     fun logout() {
-        authService.logout()
+        authRepository.signOut()
+        showInfo("Signed out.")
     }
 
-    // Load user data
+    // Reloads cached profile data for the supplied UID.
     private fun loadUserData(userId: String) {
         viewModelScope.launch {
             try {
                 _isLoading.value = true
-                _error.value = null
 
                 val data = userService.getUserProfile(userId)
                 _userData.value = data
             } catch (e: Exception) {
-                _error.value = e.message
+                showError(e.message ?: "Failed to load user data.")
             } finally {
                 _isLoading.value = false
             }
         }
     }
 
-    // Update user profile
+    // Persists name updates, reloads the profile, and triggers a success banner.
     fun updateUserProfile(firstName: String, lastName: String) {
         val userId = currentUser.value?.uid ?: return
 
         viewModelScope.launch {
             try {
                 _isLoading.value = true
-                _error.value = null
 
                 val updates = mapOf(
                     "firstName" to firstName,
@@ -173,23 +179,25 @@ class UserViewModel(
 
                 userService.updateUserProfile(userId, updates)
                 loadUserData(userId)
-                _successMessage.value = "Profile updated successfully."
+                showSuccess("Profile updated.")
             } catch (e: Exception) {
-                _error.value = e.message
+                showError(e.message ?: "Failed to update profile.")
             } finally {
                 _isLoading.value = false
             }
         }
     }
 
-    // Clear error
-    fun clearError() {
-        _error.value = null
+    fun showError(message: String) {
+        _banners.tryEmit(UiBanner(text = message, type = UiBannerType.Error))
     }
 
-    // Clear success message
-    fun clearSuccessMessage() {
-        _successMessage.value = null
+    fun showSuccess(message: String) {
+        _banners.tryEmit(UiBanner(text = message, type = UiBannerType.Success))
+    }
+
+    fun showInfo(message: String) {
+        _banners.tryEmit(UiBanner(text = message, type = UiBannerType.Info))
     }
 
     class Factory : ViewModelProvider.Factory {

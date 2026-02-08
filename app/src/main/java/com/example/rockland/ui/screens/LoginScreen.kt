@@ -1,5 +1,5 @@
+// Screen responsible for the login form in the UI layer.
 package com.example.rockland.ui.screens
-
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -18,6 +18,7 @@ import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -34,6 +35,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -51,7 +53,7 @@ import com.example.rockland.ui.theme.Rock3
 import com.example.rockland.ui.theme.RocklandTheme
 import com.example.rockland.ui.theme.TextDark
 
-// Email validation helper function
+// Validates email input with Android's email pattern.
 private fun isValidEmail(email: String): Boolean {
     return android.util.Patterns.EMAIL_ADDRESS.matcher(email).matches()
 }
@@ -64,7 +66,8 @@ fun LoginScreen(
     onBackClick: () -> Unit = {},
     onLoginClick: (email: String, password: String) -> Unit = { _, _ -> },
     onRegisterClick: () -> Unit = {},
-    onClearError: () -> Unit = {}
+    onClearError: () -> Unit = {},
+    onShowMessage: (String) -> Unit = {}
 ) {
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
@@ -135,7 +138,7 @@ fun LoginScreen(
                 ) {
                     Text(
                         text = errorMessage,
-                        color = androidx.compose.ui.graphics.Color.Red,
+                        color = Color.Red,
                         fontSize = 14.sp,
                         textAlign = TextAlign.Center,
                         fontWeight = FontWeight.Medium
@@ -143,7 +146,7 @@ fun LoginScreen(
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
                         text = "Please check your credentials and try again",
-                        color = androidx.compose.ui.graphics.Color.Red.copy(alpha = 0.7f),
+                        color = Color.Red.copy(alpha = 0.7f),
                         fontSize = 12.sp,
                         textAlign = TextAlign.Center
                     )
@@ -165,7 +168,7 @@ fun LoginScreen(
                     if (showEmailError) {
                         Text(
                             text = "Please enter a valid email address",
-                            color = androidx.compose.ui.graphics.Color.Red
+                            color = Color.Red
                         )
                     }
                 },
@@ -177,12 +180,12 @@ fun LoginScreen(
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp),
                 colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = if (showEmailError) androidx.compose.ui.graphics.Color.Red else Rock1,
-                    unfocusedBorderColor = if (showEmailError) androidx.compose.ui.graphics.Color.Red else TextDark.copy(
+                    focusedBorderColor = if (showEmailError) Color.Red else Rock1,
+                    unfocusedBorderColor = if (showEmailError) Color.Red else TextDark.copy(
                         alpha = 0.5f
                     ),
-                    focusedLabelColor = if (showEmailError) androidx.compose.ui.graphics.Color.Red else Rock1,
-                    unfocusedLabelColor = if (showEmailError) androidx.compose.ui.graphics.Color.Red else TextDark.copy(
+                    focusedLabelColor = if (showEmailError) Color.Red else Rock1,
+                    unfocusedLabelColor = if (showEmailError) Color.Red else TextDark.copy(
                         alpha = 0.5f
                     ),
                     cursorColor = Rock1
@@ -225,12 +228,12 @@ fun LoginScreen(
 
             Button(
                 onClick = {
-                    // Mark email as touched to show validation errors
-                    emailTouched = true
-
                     // Client-side validation before sending to server
-                    if (email.isNotBlank() && isValidEmail(email) && password.isNotBlank()) {
-                        onLoginClick(email.trim(), password)
+                    when {
+                        email.isBlank() -> onShowMessage("Email is required.")
+                        !isValidEmail(email) -> onShowMessage("Please enter a valid email address.")
+                        password.isBlank() -> onShowMessage("Password is required.")
+                        else -> onLoginClick(email.trim(), password)
                     }
                 },
                 enabled = !isLoading && isFormValid,
@@ -269,6 +272,18 @@ fun LoginScreen(
                         fontWeight = FontWeight.Bold
                     )
                 }
+            }
+        }
+
+        if (isLoading) {
+            // Block UI while auth is in progress to avoid double taps / navigation glitches.
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.18f)),
+                contentAlignment = Alignment.Center
+            ) {
+                CircularProgressIndicator(color = Rock1)
             }
         }
     }

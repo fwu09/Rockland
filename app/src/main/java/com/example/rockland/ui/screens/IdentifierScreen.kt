@@ -1,7 +1,9 @@
+// Entry point for the identify-rock feature and its supporting states.
 package com.example.rockland.ui.screens
-
 import android.content.Context
+import android.content.pm.ApplicationInfo
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.ImageDecoder
 import android.net.Uri
 import android.os.Build
@@ -9,7 +11,6 @@ import android.provider.MediaStore
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.activity.result.contract.ActivityResultContracts.GetContent
 import androidx.annotation.RequiresApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -36,6 +37,8 @@ import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -48,7 +51,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -60,26 +62,32 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import coil.compose.AsyncImage
 import com.example.rockland.R
 import com.example.rockland.ui.theme.BackgroundLight
 import com.example.rockland.ui.theme.Rock1
 import com.example.rockland.ui.theme.Rock3
 import com.example.rockland.ui.theme.TextDark
-import com.example.rockland.viewmodel.CollectionViewModel
+import com.example.rockland.presentation.viewmodel.CollectionViewModel
+import com.example.rockland.presentation.viewmodel.CollectionEvent
+import com.example.rockland.presentation.viewmodel.UserViewModel
+import com.google.firebase.firestore.FirebaseFirestoreException
 import com.google.firebase.firestore.ktx.firestore
 import com.google.firebase.ktx.Firebase
-import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
 import org.tensorflow.lite.Interpreter
 import java.io.BufferedReader
 import java.io.InputStreamReader
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
+
+private enum class AddState { Idle, Adding, Added }
+
 
 
 
@@ -110,7 +118,16 @@ class RockClassifier(private val context: Context) {
      * Returns Pair<label, confidence>.
      */
     suspend fun classify(imageUri: Uri): Pair<String, Float> = withContext(Dispatchers.Default) {
-        val bitmap = loadAndResizeBitmap(imageUri, imageSize, imageSize)
+        val bitmap = loadAndResizeBitmap(imageUri)
+        classifyBitmap(bitmap)
+    }
+
+    suspend fun classifyAsset(assetPath: String): Pair<String, Float> = withContext(Dispatchers.Default) {
+        val bitmap = loadAndResizeBitmapFromAssets(assetPath)
+        classifyBitmap(bitmap)
+    }
+
+    private fun classifyBitmap(bitmap: Bitmap): Pair<String, Float> {
         val input = bitmapToBuffer(bitmap)
         val output = Array(1) { FloatArray(labels.size) }
 
@@ -126,17 +143,25 @@ class RockClassifier(private val context: Context) {
             }
         }
         val label = labels.getOrElse(maxIdx) { "Unknown" }
-        label to maxVal
+        return label to maxVal
     }
 
-    private fun loadAndResizeBitmap(uri: Uri, width: Int, height: Int): Bitmap {
+    private fun loadAndResizeBitmap(uri: Uri): Bitmap {
         val original: Bitmap = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
             decodeBitmapApi28(uri)
         } else {
             @Suppress("DEPRECATION")
             MediaStore.Images.Media.getBitmap(context.contentResolver, uri)
         }
-        return Bitmap.createScaledBitmap(original, width, height, true)
+        return Bitmap.createScaledBitmap(original, imageSize, imageSize, true)
+    }
+
+    private fun loadAndResizeBitmapFromAssets(assetPath: String): Bitmap {
+        val original = context.assets.open(assetPath).use { input ->
+            BitmapFactory.decodeStream(input)
+        }
+        requireNotNull(original) { "Failed to decode asset image: $assetPath" }
+        return Bitmap.createScaledBitmap(original, imageSize, imageSize, true)
     }
 
     @RequiresApi(Build.VERSION_CODES.P)
@@ -154,8 +179,8 @@ class RockClassifier(private val context: Context) {
         bitmap.getPixels(intValues, 0, imageSize, 0, 0, imageSize, imageSize)
 
         var pixel = 0
-        for (i in 0 until imageSize) {
-            for (j in 0 until imageSize) {
+        repeat(imageSize) {
+            repeat(imageSize) {
                 val v = intValues[pixel++]
                 val r = ((v shr 16) and 0xFF) / 255f
                 val g = ((v shr 8) and 0xFF) / 255f
@@ -176,6 +201,7 @@ class RockClassifier(private val context: Context) {
 sealed interface ScanUiState {
     object Idle : ScanUiState
     data class Loading(val imageUri: Uri) : ScanUiState
+    data class LoadingAsset(val assetPath: String) : ScanUiState
     data class Success(
         val imageUri: Uri,
         val rockName: String,
@@ -189,7 +215,9 @@ sealed interface ScanUiState {
 // Entry point for the identify-rock feature.
 // ---------------------------------------------------------------------
 @Composable
-fun IdentifierScreen() {
+fun IdentifierScreen(
+    userViewModel: UserViewModel
+) {
     val context = LocalContext.current
     val classifier = remember { RockClassifier(context) }
 
@@ -197,20 +225,36 @@ fun IdentifierScreen() {
 
     // When uiState becomes Loading, run the model.
     LaunchedEffect(uiState) {
-        if (uiState is ScanUiState.Loading) {
-            val loadingState = uiState as ScanUiState.Loading
-            try {
-                val (label, confidence) = classifier.classify(loadingState.imageUri)
-                uiState = ScanUiState.Success(
-                    imageUri = loadingState.imageUri,
-                    rockName = label,
-                    confidence = confidence
-                )
-            } catch (e: Exception) {
-                uiState = ScanUiState.Error(
-                    "Failed to identify rock. Please try again.\n${e.message ?: ""}"
-                )
+        when (val s = uiState) {
+            is ScanUiState.Loading -> {
+                try {
+                    val (label, confidence) = classifier.classify(s.imageUri)
+                    uiState = ScanUiState.Success(
+                        imageUri = s.imageUri,
+                        rockName = label,
+                        confidence = confidence
+                    )
+                } catch (e: Exception) {
+                    uiState = ScanUiState.Error(
+                        "Failed to identify rock. Please try again.\n${e.message ?: ""}"
+                    )
+                }
             }
+            is ScanUiState.LoadingAsset -> {
+                try {
+                    val (label, confidence) = classifier.classifyAsset(s.assetPath)
+                    uiState = ScanUiState.Success(
+                        imageUri = Uri.EMPTY,
+                        rockName = label,
+                        confidence = confidence
+                    )
+                } catch (e: Exception) {
+                    uiState = ScanUiState.Error(
+                        "Failed to identify rock. Please try again.\n${e.message ?: ""}"
+                    )
+                }
+            }
+            else -> Unit
         }
     }
 
@@ -219,6 +263,9 @@ fun IdentifierScreen() {
             IdentifierHome(
                 onImageSelected = { uri ->
                     uiState = ScanUiState.Loading(uri)
+                },
+                onSampleAssetSelected = { assetPath ->
+                    uiState = ScanUiState.LoadingAsset(assetPath)
                 }
             )
         }
@@ -227,15 +274,20 @@ fun IdentifierScreen() {
             IdentifierLoadingScreen()
         }
 
+        is ScanUiState.LoadingAsset -> {
+            IdentifierLoadingScreen()
+        }
+
         is ScanUiState.Success -> {
             IdentifierResultScreen(
                 imageUri = state.imageUri,
-                rockId = state.rockName.lowercase(),
+                rockKey = state.rockName,
                 rockName = state.rockName,
                 confidence = state.confidence,
                 onScanAgain = {
                     uiState = ScanUiState.Idle
-                }
+                },
+                userViewModel = userViewModel
             )
         }
 
@@ -252,8 +304,19 @@ fun IdentifierScreen() {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun IdentifierHome(onImageSelected: (Uri) -> Unit) {
+fun IdentifierHome(
+    onImageSelected: (Uri) -> Unit,
+    onSampleAssetSelected: (String) -> Unit
+) {
     val context = LocalContext.current
+    val isDebuggable = remember {
+        (context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0
+    }
+
+    val sampleImages = remember {
+        context.assets.list("test_images")?.toList().orEmpty()
+    }
+    var sampleMenuExpanded by remember { mutableStateOf(false) }
 
     val galleryLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia()
@@ -268,13 +331,17 @@ fun IdentifierHome(onImageSelected: (Uri) -> Unit) {
         // TODO: Save bitmap to file/Uri and call onImageSelected.
     }
 
-    Column(
+    Box(
         modifier = Modifier
             .fillMaxSize()
             .background(BackgroundLight)
-            .padding(16.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
     ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(16.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
         Text(
             text = "RockLand Scanner",
             fontSize = 20.sp,
@@ -290,14 +357,14 @@ fun IdentifierHome(onImageSelected: (Uri) -> Unit) {
                 .clip(RoundedCornerShape(32.dp))
                 .background(Rock3)
         ) {
-            Image(
-                painter = painterResource(id = R.drawable.ic_launcher_foreground),
-                contentDescription = "Camera Preview",
+            // Fill image for the scan panel (not the whole page background).
+            AsyncImage(
+                model = "file:///android_asset/scanner_background.jpg",
+                contentDescription = null,
                 modifier = Modifier
                     .fillMaxSize()
-                    .alpha(0.3f)
-                    .padding(48.dp),
-                contentScale = ContentScale.Fit
+                    .alpha(0.32f),
+                contentScale = ContentScale.Crop
             )
 
             Column(
@@ -359,8 +426,47 @@ fun IdentifierHome(onImageSelected: (Uri) -> Unit) {
             )
         }
 
+        // Debug helper: choose a sample image from app assets to run the model without emulator gallery setup.
+        if (isDebuggable && sampleImages.isNotEmpty()) {
+            Spacer(modifier = Modifier.height(12.dp))
 
-        Spacer(modifier = Modifier.height(8.dp))
+            Box(modifier = Modifier.fillMaxWidth()) {
+                OutlinedButton(
+                    onClick = { sampleMenuExpanded = true },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(56.dp),
+                    shape = RoundedCornerShape(28.dp),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = TextDark),
+                    border = androidx.compose.foundation.BorderStroke(1.5.dp, TextDark)
+                ) {
+                    Text(
+                        text = "Use Sample Image",
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+
+                DropdownMenu(
+                    expanded = sampleMenuExpanded,
+                    onDismissRequest = { sampleMenuExpanded = false }
+                ) {
+                    sampleImages.sorted().forEach { name ->
+                        DropdownMenuItem(
+                            text = { Text(name) },
+                            onClick = {
+                                sampleMenuExpanded = false
+                                onSampleAssetSelected("test_images/$name")
+                            }
+                        )
+                    }
+                }
+            }
+        }
+
+
+            Spacer(modifier = Modifier.height(8.dp))
+        }
     }
 }
 
@@ -429,17 +535,23 @@ fun IdentifierErrorScreen(message: String, onRetry: () -> Unit) {
 }
 
 // Result screen shown after a rock has been identified.
+
 @Composable
 fun IdentifierResultScreen(
     imageUri: Uri,
-    rockId: String,
+    rockKey: String,
     rockName: String,
     confidence: Float? = null,
     onScanAgain: () -> Unit,
+    userViewModel: UserViewModel,
     collectionViewModel: CollectionViewModel = viewModel()
 ) {
     // ---------- Firestore state ----------
     val db = Firebase.firestore
+
+    // `collectionRockId` is what we will store in user's collection as the stable identifier.
+    // Prefer numeric `rockID` from Firestore when available.
+    var collectionRockId by remember(rockKey) { mutableStateOf(rockKey.trim().lowercase()) }
 
     var rockDesc by remember { mutableStateOf<String?>(null) }
     var rockLocation by remember { mutableStateOf<String?>(null) }
@@ -448,36 +560,71 @@ fun IdentifierResultScreen(
 
     var isLoading by remember { mutableStateOf(true) }
     var errorMsg by remember { mutableStateOf<String?>(null) }
-
+    var addState by remember { mutableStateOf(AddState.Idle) }
+    var pendingAddRockId by remember { mutableStateOf<String?>(null) }
     // Fetch rock details whenever the detected name changes
     LaunchedEffect(rockName) {
         isLoading = true
         errorMsg = null
+        collectionRockId = rockKey.trim().lowercase()
         rockDesc = null
         rockLocation = null
         rockRarity = null
         rockImageUrl = null
 
         try {
-            val snapshot = db.collection("rocks")
-                .whereEqualTo("rockName", rockName.trim())
+            val name = rockName.trim()
+            val doc = db.collection("rock")
+                .whereEqualTo("rockName", name)
+                .limit(1)
                 .get()
                 .await()
+                .documents
+                .firstOrNull()
 
-            if (!snapshot.isEmpty) {
-                val doc = snapshot.documents.first()
-
-                rockDesc      = doc.getString("rockDesc")
-                rockLocation  = doc.getString("rockLocation")
-                rockRarity    = doc.getString("rockRarity")
-                rockImageUrl  = doc.getString("rockImageUrl")
+            if (doc != null) {
+                val rid = doc.getLong("rockID")?.toString()
+                collectionRockId = rid ?: doc.id
+                rockDesc = doc.getString("rockDesc")
+                rockLocation = doc.getString("rockLocation")
+                rockRarity = doc.getString("rockRarity")
+                rockImageUrl = doc.getString("rockImageUrl")
             } else {
                 errorMsg = "No details found for $rockName."
             }
         } catch (e: Exception) {
-            errorMsg = "Failed to load details: ${e.message ?: "Unknown error"}"
+            val code = (e as? FirebaseFirestoreException)?.code?.name
+            errorMsg = if (code != null) {
+                "Failed to load details ($code): ${e.message ?: "Unknown error"}"
+            } else {
+                "Failed to load details: ${e.message ?: "Unknown error"}"
+            }
         } finally {
             isLoading = false
+        }
+    }
+
+    // Forward collection add results to the global top banner.
+    LaunchedEffect(Unit) {
+        collectionViewModel.events.collect { evt ->
+            when (evt) {
+                is CollectionEvent.Success -> {
+                    userViewModel.showSuccess(evt.message)
+                    if (evt.rockId != null && evt.rockId == pendingAddRockId) {
+                        addState = AddState.Added
+                    }
+                }
+                is CollectionEvent.Error -> {
+                    userViewModel.showError(evt.message)
+                    if (evt.rockId != null && evt.rockId == pendingAddRockId) {
+                        addState = if (evt.message.contains("Already in your collection", ignoreCase = true)) {
+                            AddState.Added
+                        } else {
+                            AddState.Idle
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -498,6 +645,12 @@ fun IdentifierResultScreen(
             modifier = Modifier.padding(bottom = 16.dp, top = 8.dp)
         )
 
+        val headerImageModel: Any? = when {
+            !rockImageUrl.isNullOrBlank() -> rockImageUrl
+            imageUri != Uri.EMPTY -> imageUri
+            else -> null
+        }
+
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -506,15 +659,23 @@ fun IdentifierResultScreen(
                 .background(Rock3),
             contentAlignment = Alignment.Center
         ) {
-            Image(
-                painter = painterResource(id = R.drawable.ic_launcher_foreground),
-                contentDescription = "Scanned Rock",
-                modifier = Modifier
-                    .size(120.dp)
-                    .alpha(0.5f),
-                colorFilter = androidx.compose.ui.graphics.ColorFilter.tint(Rock1)
-            )
-            Text("Image Loaded", color = TextDark, modifier = Modifier.padding(top = 80.dp))
+            if (headerImageModel != null) {
+                AsyncImage(
+                    model = headerImageModel,
+                    contentDescription = "Rock image",
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop
+                )
+            } else {
+                Image(
+                    painter = painterResource(id = R.drawable.ic_launcher_foreground),
+                    contentDescription = "Rock image placeholder",
+                    modifier = Modifier
+                        .size(120.dp)
+                        .alpha(0.5f),
+                    colorFilter = androidx.compose.ui.graphics.ColorFilter.tint(Rock1)
+                )
+            }
         }
 
         Spacer(modifier = Modifier.height(24.dp))
@@ -547,7 +708,6 @@ fun IdentifierResultScreen(
                 )
             } ?: Spacer(modifier = Modifier.height(16.dp))
 
-            // Optional fields
             rockRarity?.let {
                 Text(
                     text = "Rarity: $it",
@@ -573,7 +733,7 @@ fun IdentifierResultScreen(
             ) {
                 Column(modifier = Modifier.padding(24.dp)) {
                     Text(
-                        text = "Fun Fact and Description",
+                        text = "About $rockName",
                         fontSize = 18.sp,
                         fontWeight = FontWeight.Bold,
                         color = TextDark
@@ -618,7 +778,6 @@ fun IdentifierResultScreen(
             }
         }
 
-        Spacer(modifier = Modifier.weight(1f))
         Spacer(modifier = Modifier.height(24.dp))
 
         Row(
@@ -629,10 +788,19 @@ fun IdentifierResultScreen(
         ) {
             Button(
                 onClick = {
-                    collectionViewModel.addRockFromIdentification(
-                        rockId = rockId,
-                        rockName = rockName
-                    )
+                    when (addState) {
+                        AddState.Added -> userViewModel.showInfo("Already in your collection.")
+                        AddState.Adding -> userViewModel.showInfo("Adding to collection...")
+                        AddState.Idle -> {
+                            pendingAddRockId = collectionRockId
+                            addState = AddState.Adding
+                            collectionViewModel.addRockFromIdentification(
+                                rockId = collectionRockId,
+                                rockName = rockName,
+                                thumbnailUrl = rockImageUrl
+                            )
+                        }
+                    }
                 },
                 modifier = Modifier
                     .weight(1f)
@@ -641,7 +809,11 @@ fun IdentifierResultScreen(
                 colors = ButtonDefaults.buttonColors(containerColor = Rock1.copy(alpha = 0.9f))
             ) {
                 Text(
-                    text = "Add to Collection",
+                    text = when (addState) {
+                        AddState.Added -> "Added"
+                        AddState.Adding -> "Adding..."
+                        AddState.Idle -> "Add to Collection"
+                    },
                     fontSize = 14.sp,
                     fontWeight = FontWeight.Bold
                 )
@@ -669,19 +841,6 @@ fun IdentifierResultScreen(
 
 
 
-@Preview(showBackground = true)
-@Composable
-fun IdentifierScreenPreview() {
-    IdentifierScreen()
-}
 
-@Preview(showBackground = true, name = "Result Screen")
-@Composable
-fun IdentifierResultPreview() {
-    IdentifierResultScreen(
-        imageUri = Uri.EMPTY,
-        rockId = "preview-id",
-        rockName = "AMETHYST",
-        onScanAgain = {}
-    )
-}
+
+

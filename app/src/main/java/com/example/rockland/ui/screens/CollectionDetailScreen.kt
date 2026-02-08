@@ -1,6 +1,10 @@
+// Shows a detailed view for a single rock in the collection.
+// Keeps all UI state inside Compose for this screen.
 package com.example.rockland.ui.screens
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -30,6 +34,7 @@ import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -39,24 +44,85 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
+import coil.compose.AsyncImage
 import com.example.rockland.data.model.CollectionItem
+import com.example.rockland.data.repository.Rock
+import com.example.rockland.data.repository.RockRepository
+import com.example.rockland.presentation.viewmodel.CollectionViewModel
 import com.example.rockland.ui.theme.Rock1
 import com.example.rockland.ui.theme.Rock3
 import com.example.rockland.ui.theme.TextDark
+
+private object RockDictionaryCache {
+    // Cache dictionary lookups to avoid repeated requests when tabs change.
+    val byId = mutableMapOf<Int, Rock?>()
+    val byNameKey = mutableMapOf<String, Rock?>()
+}
 
 // Detail screen for a single collection item.
 @Composable
 fun CollectionDetailScreen(
     item: CollectionItem,
+    collectionViewModel: CollectionViewModel,
     onBack: () -> Unit,
-    onSaveNotes: (customId: String, locationLabel: String, notes: String) -> Unit
+    onSaveNotes: (customId: String, locationLabel: String, notes: String) -> Unit,
+    onItemUpdated: (CollectionItem) -> Unit
 ) {
     var selectedTab by remember { mutableIntStateOf(0) } // 0 = Rock Info, 1 = Note Details
     var showEditSheet by remember { mutableStateOf(false) }
+
+    // Cache dictionary lookup state at the parent level so tab switching doesn't reset it.
+    val rockRepository = remember { RockRepository() }
+    var dictRock by remember(item.rockId, item.rockName) { mutableStateOf<Rock?>(null) }
+    var isDictLoading by remember(item.rockId, item.rockName) { mutableStateOf(true) }
+    var dictErrorMsg by remember(item.rockId, item.rockName) { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(item.rockId, item.rockName) {
+        isDictLoading = true
+        dictErrorMsg = null
+
+        val idInt = item.rockId.toIntOrNull()
+        val nameKey = item.rockName.trim().lowercase()
+
+        // Fast path: serve from in-memory cache.
+        val cached = when {
+            idInt != null && RockDictionaryCache.byId.containsKey(idInt) -> RockDictionaryCache.byId[idInt]
+            RockDictionaryCache.byNameKey.containsKey(nameKey) -> RockDictionaryCache.byNameKey[nameKey]
+            else -> null
+        }
+        if (cached != null) {
+            dictRock = cached
+            isDictLoading = false
+            return@LaunchedEffect
+        }
+
+        try {
+            val result = if (idInt != null) {
+                rockRepository.getRockById(idInt)
+            } else {
+                rockRepository.getRockByName(item.rockName.trim())
+            }
+            dictRock = result
+            if (idInt != null) RockDictionaryCache.byId[idInt] = result
+            RockDictionaryCache.byNameKey[nameKey] = result
+            if (result == null) {
+                dictErrorMsg = "No dictionary entry found for ${item.rockName}."
+            }
+        } catch (e: Exception) {
+            dictErrorMsg = e.message ?: "Failed to load rock dictionary."
+        } finally {
+            isDictLoading = false
+        }
+    }
 
     Box(modifier = Modifier.fillMaxSize()) {
         Column(modifier = Modifier.fillMaxSize()) {
@@ -97,7 +163,7 @@ fun CollectionDetailScreen(
             }
 
             when (selectedTab) {
-                0 -> RockInfoTab(item)
+                0 -> RockInfoTab(item = item, dictRock = dictRock, isLoading = isDictLoading, errorMsg = dictErrorMsg)
                 1 -> NoteDetailsTab(item = item, onEditClick = { showEditSheet = true })
             }
         }
@@ -109,14 +175,27 @@ fun CollectionDetailScreen(
                 onSave = { customId, locationLabel, notes ->
                     onSaveNotes(customId, locationLabel, notes)
                     showEditSheet = false
-                }
+                },
+                collectionViewModel = collectionViewModel,
+                onItemUpdated = onItemUpdated
             )
         }
     }
 }
 
 @Composable
-private fun RockInfoTab(item: CollectionItem) {
+private fun RockInfoTab(
+    item: CollectionItem,
+    dictRock: Rock?,
+    isLoading: Boolean,
+    errorMsg: String?
+) {
+    val headerImageModel: Any? = when {
+        !dictRock?.rockImageUrl.isNullOrBlank() -> dictRock.rockImageUrl
+        !item.thumbnailUrl.isNullOrBlank() -> item.thumbnailUrl
+        else -> null
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -124,7 +203,7 @@ private fun RockInfoTab(item: CollectionItem) {
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        // Rock gallery placeholder
+        // Rock gallery (dictionary image)
         Card(
             modifier = Modifier
                 .fillMaxWidth()
@@ -133,12 +212,32 @@ private fun RockInfoTab(item: CollectionItem) {
             colors = CardDefaults.cardColors(containerColor = Rock3.copy(alpha = 0.2f))
         ) {
             Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
-                Text(
-                    text = "Rock Gallery",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    color = TextDark
-                )
+                when {
+                    headerImageModel != null -> {
+                        AsyncImage(
+                            model = headerImageModel,
+                            contentDescription = "${item.rockName} image",
+                            modifier = Modifier.fillMaxSize(),
+                            contentScale = ContentScale.Crop
+                        )
+                    }
+                    isLoading -> {
+                        Text(
+                            text = "Loading...",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            color = TextDark
+                        )
+                    }
+                    else -> {
+                        Text(
+                            text = "Rock Gallery",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            color = TextDark
+                        )
+                    }
+                }
             }
         }
 
@@ -151,21 +250,22 @@ private fun RockInfoTab(item: CollectionItem) {
 
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(text = "Rock Information", fontWeight = FontWeight.SemiBold, color = TextDark)
-            Text(text = "Rarity: TBD", color = TextDark)
-            Text(
-                text = "Location: " +
-                        (item.locationLabel.ifBlank {
-                            listOfNotNull(item.latitude, item.longitude)
-                                .takeIf { it.size == 2 }
-                                ?.joinToString(", ")
-                                ?: "Unknown"
-                        }),
-                color = TextDark
-            )
-            Text(
-                text = "Description: This section will display detailed rock information from the rock dictionary.",
-                color = TextDark
-            )
+            if (isLoading) {
+                Text(text = "Rarity: Loading...", color = TextDark)
+                Text(text = "Location: Loading...", color = TextDark)
+                Text(text = "Description: Loading...", color = TextDark)
+            } else if (errorMsg != null) {
+                Text(text = "Rarity: Unknown", color = TextDark)
+                Text(text = "Location: Unknown", color = TextDark)
+                Text(text = "Description: ${errorMsg.orEmpty()}", color = Color.Red)
+            } else {
+                Text(text = "Rarity: ${dictRock?.rockRarity ?: "Unknown"}", color = TextDark)
+                Text(text = "Location: ${dictRock?.rockLocation ?: "Unknown"}", color = TextDark)
+                Text(
+                    text = "Description: ${dictRock?.rockDesc ?: "No description."}",
+                    color = TextDark
+                )
+            }
         }
     }
 }
@@ -175,6 +275,8 @@ private fun NoteDetailsTab(
     item: CollectionItem,
     onEditClick: () -> Unit
 ) {
+    val userImages = remember(item.userImageUrls, item.imageUrls) { item.effectiveUserImageUrls() }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -182,7 +284,7 @@ private fun NoteDetailsTab(
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        // Shared gallery placeholder
+        // User photos gallery (from user's collection doc)
         Card(
             modifier = Modifier
                 .fillMaxWidth()
@@ -190,13 +292,41 @@ private fun NoteDetailsTab(
             shape = RoundedCornerShape(24.dp),
             colors = CardDefaults.cardColors(containerColor = Rock3.copy(alpha = 0.2f))
         ) {
-            Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
-                Text(
-                    text = "Rock Gallery",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    color = TextDark
-                )
+            if (userImages.isEmpty()) {
+                Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+                    Text(
+                        text = "Rock Gallery",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = TextDark
+                    )
+                }
+            } else {
+                Row(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(12.dp)
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    userImages.forEach { url ->
+                        Box(
+                            modifier = Modifier
+                                .size(196.dp)
+                                .clip(RoundedCornerShape(20.dp))
+                                .background(Color.White.copy(alpha = 0.6f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            AsyncImage(
+                                model = url,
+                                contentDescription = "User rock photo",
+                                modifier = Modifier.fillMaxSize(),
+                                contentScale = ContentScale.Crop
+                            )
+                        }
+                    }
+                }
             }
         }
 
@@ -208,7 +338,7 @@ private fun NoteDetailsTab(
         )
 
         Text(
-            text = if (item.notes.isNotBlank()) item.notes else "No notes yet.",
+            text = item.notes.ifBlank { "No notes yet." },
             style = MaterialTheme.typography.bodyMedium,
             color = TextDark
         )
@@ -231,11 +361,32 @@ private fun NoteDetailsTab(
 private fun EditNotesSheet(
     item: CollectionItem,
     onDismiss: () -> Unit,
-    onSave: (customId: String, locationLabel: String, notes: String) -> Unit
+    onSave: (customId: String, locationLabel: String, notes: String) -> Unit,
+    collectionViewModel: CollectionViewModel,
+    onItemUpdated: (CollectionItem) -> Unit
 ) {
     var customId by remember { mutableStateOf(item.customId) }
     var location by remember { mutableStateOf(item.locationLabel) }
     var notes by remember { mutableStateOf(item.notes) }
+    val userImages = remember(item.userImageUrls, item.imageUrls) { item.effectiveUserImageUrls() }
+    val context = LocalContext.current
+
+    val photoPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickMultipleVisualMedia(maxItems = 10)
+    ) { uris ->
+        if (uris.isNullOrEmpty()) return@rememberLauncherForActivityResult
+        collectionViewModel.uploadUserPhotos(
+            itemId = item.id,
+            uris = uris,
+            context = context,
+            onUploaded = { uploaded ->
+                if (uploaded.isNotEmpty()) {
+                    val merged = (item.effectiveUserImageUrls() + uploaded).distinct()
+                    onItemUpdated(item.copy(userImageUrls = merged))
+                }
+            }
+        )
+    }
 
     Box(
         modifier = Modifier
@@ -296,11 +447,35 @@ private fun EditNotesSheet(
                     style = MaterialTheme.typography.bodyMedium,
                     fontWeight = FontWeight.Medium
                 )
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(
+                    modifier = Modifier.horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    userImages.forEach { url ->
+                        Box(
+                            modifier = Modifier
+                                .size(72.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(Rock3.copy(alpha = 0.1f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            AsyncImage(
+                                model = url,
+                                contentDescription = "User photo",
+                                modifier = Modifier.fillMaxSize(),
+                                contentScale = ContentScale.Crop
+                            )
+                        }
+                    }
                     Box(
                         modifier = Modifier
                             .size(72.dp)
                             .clip(RoundedCornerShape(12.dp))
+                            .clickable {
+                                photoPickerLauncher.launch(
+                                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                                )
+                            }
                             .background(Rock3.copy(alpha = 0.1f)),
                         contentAlignment = Alignment.Center
                     ) {
@@ -310,6 +485,11 @@ private fun EditNotesSheet(
                         modifier = Modifier
                             .size(72.dp)
                             .clip(RoundedCornerShape(12.dp))
+                            .clickable {
+                                photoPickerLauncher.launch(
+                                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                                )
+                            }
                             .background(Rock3.copy(alpha = 0.1f)),
                         contentAlignment = Alignment.Center
                     ) {
@@ -367,7 +547,9 @@ private fun CollectionDetailScreenPreview() {
     )
     CollectionDetailScreen(
         item = sample,
+        collectionViewModel = CollectionViewModel(),
         onBack = {},
-        onSaveNotes = { _, _, _ -> }
+        onSaveNotes = { _, _, _ -> },
+        onItemUpdated = {}
     )
 }

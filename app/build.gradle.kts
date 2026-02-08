@@ -80,6 +80,9 @@ dependencies {
     // Helper utilities for images & tensors (makes life MUCH easier)
     implementation("org.tensorflow:tensorflow-lite-support:0.4.4")
 
+    // Image loading (URLs from Firestore/Storage)
+    implementation("io.coil-kt:coil-compose:2.6.0")
+
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)

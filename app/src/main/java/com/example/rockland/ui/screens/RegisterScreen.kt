@@ -1,5 +1,5 @@
+// Screen handling the registration form in the UI layer.
 package com.example.rockland.ui.screens
-
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -18,6 +18,7 @@ import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -65,7 +66,8 @@ fun RegisterScreen(
     onBackClick: () -> Unit = {},
     onRegisterClick: (email: String, password: String, firstName: String, lastName: String) -> Unit = { _, _, _, _ -> },
     onLoginClick: () -> Unit = {},
-    onClearError: () -> Unit = {}
+    onClearError: () -> Unit = {},
+    onShowMessage: (String) -> Unit = {}
 ) {
     var firstName by remember { mutableStateOf("") }
     var lastName by remember { mutableStateOf("") }
@@ -220,7 +222,6 @@ fun RegisterScreen(
                 value = email,
                 onValueChange = {
                     email = it
-                    emailTouched = true
                 },
                 label = { Text(stringResource(R.string.email)) },
                 singleLine = true,
@@ -339,9 +340,6 @@ fun RegisterScreen(
 
             Button(
                 onClick = {
-                    // Mark email as touched to show validation errors
-                    emailTouched = true
-
                     // Client-side validation before sending to server
                     when {
                         firstName.isBlank() || lastName.isBlank() -> {
@@ -353,11 +351,11 @@ fun RegisterScreen(
                         }
 
                         password.length < 6 -> {
-                            // Password error will be shown
+                            onShowMessage("Password must be at least 6 characters.")
                         }
 
                         password != confirmPassword -> {
-                            // Password mismatch error will be shown
+                            onShowMessage("Passwords do not match.")
                         }
 
                         else -> {
@@ -407,6 +405,18 @@ fun RegisterScreen(
                         fontWeight = FontWeight.Bold
                     )
                 }
+            }
+        }
+
+        if (isLoading) {
+            // Block UI while auth is in progress to avoid double taps / navigation glitches.
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.18f)),
+                contentAlignment = Alignment.Center
+            ) {
+                CircularProgressIndicator(color = Rock1)
             }
         }
     }

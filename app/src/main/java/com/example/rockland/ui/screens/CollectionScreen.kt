@@ -1,3 +1,4 @@
+// Hosts the collection and dictionary tabs while forwarding ViewModel events to the UI.
 package com.example.rockland.ui.screens
 
 import androidx.compose.foundation.background
@@ -10,24 +11,37 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
+import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -36,27 +50,56 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import coil.compose.AsyncImage
+import com.example.rockland.data.auth.FirebaseAuthRepository
 import com.example.rockland.data.model.CollectionItem
+import com.example.rockland.data.repository.Rock
+import com.example.rockland.data.repository.RockRepository
 import com.example.rockland.ui.theme.Rock3
 import com.example.rockland.ui.theme.TextDark
-import com.example.rockland.viewmodel.CollectionViewModel
+import com.example.rockland.presentation.viewmodel.CollectionViewModel
+import com.example.rockland.presentation.viewmodel.CollectionEvent
+import com.example.rockland.presentation.viewmodel.UserViewModel
+import com.google.firebase.firestore.FirebaseFirestore
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.tasks.await
+import java.text.SimpleDateFormat
+import java.util.Locale
+import androidx.compose.ui.window.Dialog
+
 
 @Composable
 fun CollectionScreen(
+    userViewModel: UserViewModel? = null,
     viewModel: CollectionViewModel = viewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val selectedTabIndex = remember { mutableIntStateOf(0) } // 0 = Collections, 1 = Dictionary
     val selectedItem = remember { mutableStateOf<CollectionItem?>(null) }
 
+    // Forward collection events (add/upload/etc.) to the global top banner.
+    LaunchedEffect(userViewModel) {
+        if (userViewModel == null) return@LaunchedEffect
+        viewModel.events.collect { evt ->
+            when (evt) {
+                is CollectionEvent.Success -> userViewModel.showSuccess(evt.message)
+                is CollectionEvent.Error -> userViewModel.showError(evt.message)
+            }
+        }
+    }
+
     if (selectedTabIndex.intValue == 0 && selectedItem.value != null) {
         CollectionDetailScreen(
             item = selectedItem.value!!,
+            collectionViewModel = viewModel,
             onBack = { selectedItem.value = null },
             onSaveNotes = { customId, location, notes ->
                 val current = selectedItem.value
@@ -66,7 +109,7 @@ fun CollectionScreen(
                         customId = customId,
                         locationLabel = location,
                         notes = notes,
-                        imageUrls = current.imageUrls
+                        userImageUrls = current.effectiveUserImageUrls()
                     )
                     selectedItem.value = current.copy(
                         customId = customId,
@@ -74,7 +117,8 @@ fun CollectionScreen(
                         notes = notes
                     )
                 }
-            }
+            },
+            onItemUpdated = { updated -> selectedItem.value = updated }
         )
     } else {
         Column(
@@ -113,11 +157,15 @@ fun CollectionScreen(
             when (selectedTabIndex.intValue) {
                 0 -> CollectionsTabContent(
                     items = uiState.items,
+                    isLoading = uiState.isLoading,
                     onDelete = { item -> viewModel.removeFromCollection(item.id) },
                     onSelect = { item -> selectedItem.value = item }
                 )
 
-                1 -> DictionaryTabPlaceholder()
+                1 -> DictionaryTabContent(
+                    userViewModel = userViewModel,
+                    collectionItems = uiState.items
+                )
             }
         }
     }
@@ -133,6 +181,7 @@ private fun CollectionScreenPreview() {
 
     CollectionsTabContent(
         items = sampleItems,
+        isLoading = false,
         onDelete = {},
         onSelect = {}
     )
@@ -141,10 +190,14 @@ private fun CollectionScreenPreview() {
 @Composable
 private fun CollectionsTabContent(
     items: List<CollectionItem>,
+    isLoading: Boolean,
     onDelete: (CollectionItem) -> Unit,
     onSelect: (CollectionItem) -> Unit
 ) {
-    // TODO: Backend - Integrate with rock identification API
+    if (isLoading && items.isEmpty()) {
+        CollectionSkeletonList()
+        return
+    }
 
     if (items.isEmpty()) {
         Column(
@@ -155,7 +208,7 @@ private fun CollectionsTabContent(
             Text(
                 text = "Your virtual collection is empty. Go out and identify your first rock!",
                 color = Color(0xFF555555),
-                textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                textAlign = TextAlign.Center
             )
         }
     } else {
@@ -170,6 +223,75 @@ private fun CollectionsTabContent(
                     onSelect = { onSelect(item) }
                 )
             }
+        }
+    }
+}
+
+@Composable
+private fun CollectionSkeletonList() {
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        items(listOf(1, 2, 3, 4, 5, 6)) {
+            CollectionSkeletonItem()
+        }
+    }
+}
+
+@Composable
+private fun CollectionSkeletonItem() {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp)),
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Row(
+                modifier = Modifier.weight(1f),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(64.dp)
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(Rock3.copy(alpha = 0.18f))
+                )
+
+                Column(modifier = Modifier.fillMaxWidth(0.85f)) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth(0.55f)
+                            .height(16.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(Color(0xFFE6E6E6))
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth(0.85f)
+                            .height(12.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(Color(0xFFEEEEEE))
+                    )
+                }
+            }
+
+            Box(
+                modifier = Modifier
+                    .size(20.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(Color(0xFFEEEEEE))
+            )
         }
     }
 }
@@ -211,11 +333,20 @@ private fun CollectionListItem(
                         .background(Rock3.copy(alpha = 0.2f)),
                     contentAlignment = Alignment.Center
                 ) {
-                    Text(
-                        text = "Photo",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = TextDark
-                    )
+                    if (!item.thumbnailUrl.isNullOrBlank()) {
+                        AsyncImage(
+                            model = item.thumbnailUrl,
+                            contentDescription = "${item.rockName} thumbnail",
+                            modifier = Modifier.fillMaxSize(),
+                            contentScale = ContentScale.Crop
+                        )
+                    } else {
+                        Text(
+                            text = "Photo",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = TextDark
+                        )
+                    }
                 }
 
                 Column {
@@ -260,14 +391,362 @@ private fun CollectionListItem(
 }
 
 @Composable
-private fun DictionaryTabPlaceholder() {
+private fun DictionaryTabContent(
+    userViewModel: UserViewModel?,
+    collectionItems: List<CollectionItem>
+) {
+    val authRepo = remember { FirebaseAuthRepository.getInstance() }
+    val user by authRepo.authState.collectAsState(initial = null)
+
+    val rockRepository = remember { RockRepository() }
+    val db = remember { FirebaseFirestore.getInstance() }
+
+    val allRocks = remember { mutableStateOf<List<Rock>>(emptyList()) }
+    val unlockedRockIds = remember { mutableStateOf<Set<String>>(emptySet()) }
+    val isLoading = remember { mutableStateOf(true) }
+    val error = remember { mutableStateOf<String?>(null) }
+    val query = remember { mutableStateOf("") }
+    val selectedRock = remember { mutableStateOf<Rock?>(null) }
+
+    // Load dictionary rocks and per-user unlock set.
+    LaunchedEffect(user?.uid) {
+        isLoading.value = true
+        error.value = null
+
+        runCatching {
+            val rocks = rockRepository.getAllRocks().sortedBy { it.rockName }
+            allRocks.value = rocks
+
+            val uid = user?.uid
+            val unlocked = if (uid != null) {
+                val doc = db.collection("users").document(uid).get().await()
+                val list = (doc.get("unlockedRockIds") as? List<*>)?.filterIsInstance<String>().orEmpty()
+                list.toSet()
+            } else {
+                emptySet()
+            }
+
+            // Also treat current collection as unlocked (so brand-new users see unlocks even if
+            // unlockedRockIds hasn't been written yet for some reason).
+            val fromCollection = collectionItems.mapNotNull { it.rockId.takeIf { id -> id.isNotBlank() } }.toSet()
+            unlockedRockIds.value = unlocked + fromCollection
+        }.onFailure { e ->
+            if (e is CancellationException) return@LaunchedEffect
+            val msg = e.message ?: "Failed to load rock dictionary."
+            error.value = msg
+            userViewModel?.showError(msg)
+        }
+
+        isLoading.value = false
+    }
+
+    val q = query.value.trim()
+    val filtered = if (q.isBlank()) {
+        allRocks.value
+    } else {
+        // Prefix fuzzy search: match from the first letter in order.
+        allRocks.value.filter { it.rockName.startsWith(q, ignoreCase = true) }
+    }
+
+    Column(modifier = Modifier.fillMaxSize()) {
+        OutlinedTextField(
+            value = query.value,
+            onValueChange = { query.value = it },
+            modifier = Modifier.fillMaxWidth(),
+            label = { Text("Rocks dictionary search bar") },
+            singleLine = true,
+            leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+            trailingIcon = {
+                if (query.value.isNotBlank()) {
+                    IconButton(onClick = { query.value = "" }) {
+                        Icon(Icons.Default.Refresh, contentDescription = "Reset")
+                    }
+                }
+            }
+        )
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        when {
+            isLoading.value -> {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Text("Loading...")
+                }
+            }
+
+            error.value != null -> {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Text(error.value!!, color = Color.Red)
+                }
+            }
+
+            filtered.isEmpty() -> {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Text("No matching rocks.")
+                }
+            }
+
+            else -> {
+                val byRockId = remember(collectionItems) { collectionItems.associateBy { it.rockId } }
+                val byRockName = remember(collectionItems) { collectionItems.associateBy { it.rockName } }
+
+                LazyVerticalGrid(
+                    columns = GridCells.Fixed(3),
+                    modifier = Modifier.fillMaxSize(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    items(filtered, key = { it.rockID }) { rock ->
+                        val unlocked = unlockedRockIds.value.contains(rock.rockID.toString())
+                        DictionaryRockCard(
+                            rock = rock,
+                            unlocked = unlocked,
+                            onClick = { selectedRock.value = rock }
+                        )
+                    }
+                }
+
+                val rock = selectedRock.value
+                if (rock != null) {
+                    val collectionItem = byRockId[rock.rockID.toString()] ?: byRockName[rock.rockName]
+                    val isCollected = collectionItem != null
+                    val isUnlocked = unlockedRockIds.value.contains(rock.rockID.toString()) || isCollected
+                    RockDictionaryDialog(
+                        rock = rock,
+                        isUnlocked = isUnlocked,
+                        collectionItem = collectionItem,
+                        onDismiss = { selectedRock.value = null }
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun DictionaryRockCard(
+    rock: Rock,
+    unlocked: Boolean,
+    onClick: () -> Unit
+) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(135.dp)
+            .clip(RoundedCornerShape(16.dp))
+            .clickable { onClick() },
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+    ) {
+        Column(modifier = Modifier.fillMaxSize()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+                    .background(Rock3.copy(alpha = 0.15f)),
+                contentAlignment = Alignment.Center
+            ) {
+                if (rock.rockImageUrl.isNotBlank()) {
+                    AsyncImage(
+                        model = rock.rockImageUrl,
+                        contentDescription = rock.rockName,
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Crop
+                    )
+                }
+
+                if (!unlocked) {
+                    // Locked overlay: keep image visible but masked.
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(
+                                Brush.verticalGradient(
+                                    colors = listOf(
+                                        Color.Black.copy(alpha = 0.55f),
+                                        Color.Black.copy(alpha = 0.25f)
+                                    )
+                                )
+                            )
+                    )
+                    Icon(
+                        imageVector = Icons.Default.Lock,
+                        contentDescription = "Locked",
+                        tint = Color.White.copy(alpha = 0.9f),
+                        modifier = Modifier.size(28.dp)
+                    )
+                }
+            }
+
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(10.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                if (unlocked) {
+                    Text(
+                        text = rock.rockName,
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = TextDark
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun RockDictionaryDialog(
+    rock: Rock,
+    isUnlocked: Boolean,
+    collectionItem: CollectionItem?,
+    onDismiss: () -> Unit
+) {
+    Dialog(onDismissRequest = onDismiss) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(22.dp))
+        ) {
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 560.dp),
+                shape = RoundedCornerShape(22.dp),
+                color = Color.White
+            ) {
+                if (!isUnlocked) {
+                    LockedRockDialogContent()
+                } else {
+                    UnlockedRockDialogContent(rock = rock, collectionItem = collectionItem)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun LockedRockDialogContent() {
     Box(
-        modifier = Modifier.fillMaxSize(),
-        contentAlignment = Alignment.Center
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(
+                Brush.verticalGradient(
+                    colors = listOf(
+                        Color(0xFF3A3A3A),
+                        Color(0xFF7A7A7A)
+                    )
+                )
+            )
+            .padding(18.dp)
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Icon(
+                imageVector = Icons.Default.Lock,
+                contentDescription = "Locked",
+                tint = Color.White.copy(alpha = 0.9f),
+                modifier = Modifier.size(34.dp)
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+            Text(
+                text = "Uncover this rock to reveal its secrets! Explore nearby areas to unlock it!",
+                color = Color.White,
+                style = MaterialTheme.typography.bodyMedium,
+                textAlign = TextAlign.Center
+            )
+        }
+    }
+}
+
+@Composable
+private fun UnlockedRockDialogContent(
+    rock: Rock,
+    collectionItem: CollectionItem?
+) {
+    val formatter = remember {
+        SimpleDateFormat("dd MMM yyyy", Locale.US)
+    }
+    val collectedAt = collectionItem?.createdAt?.toDate()?.let { formatter.format(it) }
+    val statusText = if (collectionItem != null) "Collected" else "Unlocked"
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .verticalScroll(rememberScrollState())
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(210.dp)
+                .background(Color(0xFFF0F0F0)),
+            contentAlignment = Alignment.Center
+        ) {
+            if (rock.rockImageUrl.isNotBlank()) {
+                AsyncImage(
+                    model = rock.rockImageUrl,
+                    contentDescription = rock.rockName,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop
+                )
+            }
+        }
+
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text(
+                text = "Collection Status: $statusText",
+                style = MaterialTheme.typography.bodySmall,
+                color = TextDark.copy(alpha = 0.7f),
+                fontWeight = FontWeight.SemiBold
+            )
+            if (collectedAt != null) {
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = "Collection date: $collectedAt",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextDark.copy(alpha = 0.7f)
+                )
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+            Text(
+                text = rock.rockName,
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold,
+                color = TextDark
+            )
+
+            Spacer(modifier = Modifier.height(10.dp))
+            HorizontalDivider(color = Color(0xFFEDEDED))
+            Spacer(modifier = Modifier.height(10.dp))
+
+            InfoRow(label = "Rarity", value = rock.rockRarity)
+            Spacer(modifier = Modifier.height(6.dp))
+            InfoRow(label = "Location", value = rock.rockLocation)
+        }
+    }
+}
+
+@Composable
+private fun InfoRow(label: String, value: String) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.Top
     ) {
         Text(
-            text = "Rock Dictionary (coming soon).",
-            color = Color(0xFF777777)
+            text = "$label:",
+            style = MaterialTheme.typography.bodyMedium,
+            color = TextDark.copy(alpha = 0.85f),
+            fontWeight = FontWeight.SemiBold
+        )
+        Spacer(modifier = Modifier.size(10.dp))
+        Text(
+            text = value,
+            modifier = Modifier.weight(1f),
+            style = MaterialTheme.typography.bodyMedium,
+            color = TextDark,
+            textAlign = TextAlign.End
         )
     }
 }

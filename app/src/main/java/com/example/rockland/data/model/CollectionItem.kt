@@ -2,11 +2,11 @@ package com.example.rockland.data.model
 
 import com.google.firebase.Timestamp
 
-// One item in the user's virtual rock collection.
+// Data that represents a rock saved inside the user's Firestore collection subcollection.
 data class CollectionItem(
-    val id: String = "",              // Firestore document ID
-    val rockId: String = "",          // ID in rockLocations / rocks
-    val rockSource: String = "",      // "map" or "identify"
+    val id: String = "",
+    val rockId: String = "",
+    val rockSource: String = "",
 
     val rockName: String = "",
     val thumbnailUrl: String? = null,
@@ -16,8 +16,13 @@ data class CollectionItem(
     val customId: String = "",
     val locationLabel: String = "",
     val notes: String = "",
+    // Preferred field for user-uploaded photo URLs.
+    val userImageUrls: List<String> = emptyList(),
+    // Legacy field kept for backward compatibility when migration is pending.
     val imageUrls: List<String> = emptyList(),
 
     val createdAt: Timestamp? = null,
     val updatedAt: Timestamp? = null
-)
+) {
+    fun effectiveUserImageUrls(): List<String> = if (userImageUrls.isNotEmpty()) userImageUrls else imageUrls
+}

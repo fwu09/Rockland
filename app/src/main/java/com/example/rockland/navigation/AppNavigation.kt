@@ -1,21 +1,27 @@
 package com.example.rockland.navigation
 
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.ui.platform.LocalContext
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import com.example.rockland.ui.components.TopBannerHost
+import com.example.rockland.presentation.model.UiBanner
 import com.example.rockland.ui.screens.LoginScreen
 import com.example.rockland.ui.screens.MainScreen
 import com.example.rockland.ui.screens.RegisterScreen
 import com.example.rockland.ui.screens.SettingsScreen
 import com.example.rockland.ui.screens.WelcomeScreen
-import com.example.rockland.viewmodel.UserViewModel
+import com.example.rockland.presentation.viewmodel.UserViewModel
 
 // Application routes
 object AppRoutes {
@@ -31,14 +37,34 @@ object AppRoutes {
 fun AppNavigation(
     navController: NavHostController = rememberNavController()
 ) {
-    val context = LocalContext.current
     val userViewModel: UserViewModel = viewModel(factory = UserViewModel.Factory())
     val isLoggedIn by userViewModel.isLoggedIn.collectAsState()
-    val error by userViewModel.error.collectAsState()
     val isLoading by userViewModel.isLoading.collectAsState()
-    val successMessage by userViewModel.successMessage.collectAsState()
+    val bannerState = remember { mutableStateOf<UiBanner?>(null) }
 
+    LaunchedEffect(Unit) {
+        userViewModel.banners.collect { bannerState.value = it }
+    }
 
+    // Auth gate: MAIN is only reachable after login.
+    LaunchedEffect(isLoggedIn) {
+        val route = navController.currentDestination?.route
+        if (isLoggedIn) {
+            if (route == AppRoutes.WELCOME || route == AppRoutes.LOGIN || route == AppRoutes.REGISTER) {
+                navController.navigate(AppRoutes.MAIN) {
+                    popUpTo(AppRoutes.WELCOME) { inclusive = true }
+                }
+            }
+        } else {
+            if (route == AppRoutes.MAIN || route == AppRoutes.SETTINGS) {
+                navController.navigate(AppRoutes.WELCOME) {
+                    popUpTo(AppRoutes.MAIN) { inclusive = true }
+                }
+            }
+        }
+    }
+
+    Box(modifier = androidx.compose.ui.Modifier.fillMaxSize()) {
     NavHost(
         navController = navController,
         startDestination = AppRoutes.WELCOME
@@ -51,20 +77,12 @@ fun AppNavigation(
                 },
                 onSignUpClick = {
                     navController.navigate(AppRoutes.REGISTER)
-                },
-                onSkipClick = {
-                    navController.navigate(AppRoutes.MAIN) {
-                        popUpTo(AppRoutes.WELCOME) { inclusive = true }
-                    }
                 }
             )
         }
 
         // Login screen
         composable(AppRoutes.LOGIN) {
-            LaunchedEffect(Unit) {
-                userViewModel.clearError()
-            }
 
             LaunchedEffect(isLoggedIn) {
                 if (isLoggedIn) {
@@ -76,7 +94,7 @@ fun AppNavigation(
 
             LoginScreen(
                 isLoading = isLoading,
-                errorMessage = error,
+                    errorMessage = null, // handled via top banner
                 onBackClick = {
                     navController.popBackStack()
                 },
@@ -88,17 +106,13 @@ fun AppNavigation(
                         popUpTo(AppRoutes.LOGIN) { inclusive = true }
                     }
                 },
-                onClearError = {
-                    userViewModel.clearError()
-                }
+                    onClearError = { /* no-op */ },
+                    onShowMessage = { msg -> userViewModel.showError(msg) }
             )
         }
 
         // Register screen
         composable(AppRoutes.REGISTER) {
-            LaunchedEffect(Unit) {
-                userViewModel.clearError()
-            }
 
             LaunchedEffect(isLoggedIn) {
                 if (isLoggedIn) {
@@ -110,7 +124,7 @@ fun AppNavigation(
 
             RegisterScreen(
                 isLoading = isLoading,
-                errorMessage = error,
+                    errorMessage = null, // handled via top banner
                 onBackClick = {
                     navController.popBackStack()
                 },
@@ -122,9 +136,8 @@ fun AppNavigation(
                         popUpTo(AppRoutes.REGISTER) { inclusive = true }
                     }
                 },
-                onClearError = {
-                    userViewModel.clearError()
-                }
+                    onClearError = { /* no-op */ },
+                    onShowMessage = { msg -> userViewModel.showError(msg) }
             )
         }
 
@@ -176,6 +189,13 @@ fun AppNavigation(
                 }
             )
         }
+        }
+
+        TopBannerHost(
+            banner = bannerState.value,
+            onDismiss = { bannerState.value = null },
+            modifier = androidx.compose.ui.Modifier.align(Alignment.TopCenter)
+        )
     }
 }
 

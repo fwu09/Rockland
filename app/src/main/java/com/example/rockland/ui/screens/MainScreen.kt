@@ -1,5 +1,5 @@
+// Screen orchestrating bottom navigation and child content in the UI layer.
 package com.example.rockland.ui.screens
-
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -25,8 +25,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.rockland.data.datasource.remote.UserData
-import com.example.rockland.viewmodel.MapViewModel
-import com.example.rockland.viewmodel.UserViewModel
+import com.example.rockland.presentation.viewmodel.MapViewModel
+import com.example.rockland.presentation.viewmodel.UserViewModel
 
 // Main screen with bottom navigation.
 @Composable
@@ -42,6 +42,7 @@ fun MainScreen(
         selectedTab = selectedTab,
         onTabSelected = { selectedTab = it },
         userData = userData,
+        userViewModel = userViewModel,
         onSettingsClick = onSettingsClick,
         onLogoutClick = onLogoutClick
     )
@@ -52,6 +53,7 @@ fun MainScreenContent(
     selectedTab: Int,
     onTabSelected: (Int) -> Unit,
     userData: UserData?,
+    userViewModel: UserViewModel,
     onSettingsClick: () -> Unit,
     onLogoutClick: () -> Unit
 ) {
@@ -104,7 +106,7 @@ fun MainScreenContent(
                 .padding(paddingValues)
         ) {
             when (selectedTab) {
-                0 -> CollectionScreen()
+                0 -> CollectionScreen(userViewModel = userViewModel)
                 1 -> MapScreen(
                     viewModel = MapViewModel(),
                     onInfoDetailsClick = { /* TODO: map info details navigation */ },
@@ -116,7 +118,7 @@ fun MainScreenContent(
                     onProfileClick = { onTabSelected(5) }
                 )
 
-                3 -> IdentifierScreen()
+                3 -> IdentifierScreen(userViewModel = userViewModel)
                 4 -> AchievementScreen()
                 5 -> ProfileScreen(
                     userData = userData,
@@ -142,6 +144,7 @@ fun MainScreenPreview() {
         selectedTab = 0,
         onTabSelected = {},
         userData = UserData(firstName = "Preview", lastName = "User"),
+        userViewModel = UserViewModel(),
         onSettingsClick = {},
         onLogoutClick = {}
     )

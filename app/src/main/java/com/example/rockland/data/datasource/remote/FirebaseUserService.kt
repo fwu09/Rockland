@@ -1,3 +1,4 @@
+// Firestore-based user profile model and service used by UserViewModel.
 package com.example.rockland.data.datasource.remote
 
 import com.google.firebase.auth.FirebaseUser
@@ -21,7 +22,7 @@ data class UserData(
     val badges: List<String> = listOf()
 )
 
-// firebase user service
+// Firebase user service (Firestore).
 class FirebaseUserService {
     private val db = FirebaseFirestore.getInstance()
     private val usersCollection = db.collection("users")
@@ -95,3 +96,5 @@ class FirebaseUserService {
         }
     }
 }
+
+
