@@ -1,0 +1,10 @@
+Coal
+Flint
+Granite
+Limestone
+Marble
+Mudstone
+Obsidian
+Quartzite
+Sandstone
+Slate
