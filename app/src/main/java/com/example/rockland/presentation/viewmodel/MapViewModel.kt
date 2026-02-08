@@ -18,6 +18,16 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import android.content.Context
+import android.net.Uri
+import com.google.firebase.ktx.Firebase
+import com.google.firebase.storage.ktx.storage
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.tasks.await
+import java.util.UUID
+import android.util.Log
+
 
 // Tracks rock markers and loading status for the map UI.
 class MapUiState(
@@ -72,8 +82,14 @@ class MapViewModel(
     private val authorName = MutableStateFlow("You")
     private val _currentUserId = MutableStateFlow<String?>(null)
     val currentUserId: StateFlow<String?> = _currentUserId
+
+    private val _isPosting = MutableStateFlow(false)
+    val isPosting: StateFlow<Boolean> = _isPosting
+
     private val _awardMessages = MutableSharedFlow<String>(extraBufferCapacity = 3)
     val awardMessages = _awardMessages
+    private val _submissionMessages = MutableSharedFlow<String>(extraBufferCapacity = 2)
+    val submissionMessages = _submissionMessages
     private val readInfoLocations = mutableSetOf<String>()
 
     init {
@@ -189,53 +205,67 @@ class MapViewModel(
 
     fun submitComment(text: String, author: String = "You") {
         val locationId = _selectedLocation.value?.id ?: return
+        if (_isPosting.value) return
+
         viewModelScope.launch {
+            _isPosting.value = true
             try {
-                val resolvedAuthor = if (author.isBlank() || author == "You") {
-                    authorName.value
-                } else {
-                    author
-                }
+                val resolvedAuthor = if (author.isBlank() || author == "You") authorName.value else author
                 val uid = currentUser.value?.uid ?: ""
+
                 repository.addComment(
                     locationId = locationId,
                     userId = uid,
                     author = resolvedAuthor,
                     text = text
                 )
+
                 if (uid.isNotBlank()) {
                     val result = awardsRepository.applyTrigger(uid, "post_comment")
                     result.messages.firstOrNull()?.let { _awardMessages.tryEmit(it) }
                 }
+
+                _submissionMessages.tryEmit("Comment submitted. Waiting for review.")
                 loadCommunityContent(locationId)
             } catch (_: Throwable) {
-                // Keep UI stable; retry later if needed.
+            } finally {
+                _isPosting.value = false
+                hideCommentForm()
+                _activeCommunityTab.value = CommunityTab.COMMENTS
             }
-            hideCommentForm()
-            _activeCommunityTab.value = CommunityTab.COMMENTS
         }
     }
 
-    fun submitPhoto(caption: String, imageUrl: String) {
+    fun submitPhoto(context: Context, caption: String, imageUri: Uri?) {
         val locationId = _selectedLocation.value?.id ?: return
-        val resolvedUrl = imageUrl.ifBlank {
-            "https://images.unsplash.com/photo-1488376731099-56a7f1c8df5b"
-        }
+        val uid = currentUser.value?.uid ?: return
+        val uri = imageUri ?: return
+
         viewModelScope.launch {
+            _isPosting.value = true
             try {
                 val resolvedAuthor = authorName.value
+                val urls = uploadLocationPhotoUris(context, locationId, uid, listOf(uri))
+                val url = urls.firstOrNull() ?: return@launch
+
                 repository.addPhoto(
                     locationId = locationId,
+                    commentId = null,
+                    userId = uid,
                     author = resolvedAuthor,
                     caption = caption,
-                    imageUrl = resolvedUrl
+                    imageUrl = url
                 )
+
+                _submissionMessages.tryEmit("Photo submitted. Waiting for review.")
                 loadCommunityContent(locationId)
-            } catch (_: Throwable) {
-                // Keep UI stable; retry later if needed.
+            } catch (t: Throwable) {
+                Log.e("MapUpload", "Upload failed in submitPhoto()", t)
+            } finally {
+                _isPosting.value = false
+                hidePhotoForm()
+                _activeCommunityTab.value = CommunityTab.PHOTOS
             }
-            hidePhotoForm()
-            _activeCommunityTab.value = CommunityTab.PHOTOS
         }
     }
 
@@ -249,18 +279,6 @@ class MapViewModel(
         }
     }
 
-    fun editComment(commentId: String, newText: String) {
-        val locationId = _selectedLocation.value?.id ?: return
-        viewModelScope.launch {
-            try {
-                repository.updateComment(locationId, commentId, newText)
-                loadCommunityContent(locationId)
-            } catch (_: Throwable) {
-                // Keep UI stable; retry later if needed.
-            }
-        }
-    }
-
     fun deleteComment(commentId: String) {
         val locationId = _selectedLocation.value?.id ?: return
         viewModelScope.launch {
@@ -268,10 +286,21 @@ class MapViewModel(
                 repository.deleteComment(locationId, commentId)
                 loadCommunityContent(locationId)
             } catch (_: Throwable) {
-                // Keep UI stable; retry later if needed.
             }
         }
     }
+
+    fun deletePhoto(locationPhotoId: String) {
+        val locationId = _selectedLocation.value?.id ?: return
+        viewModelScope.launch {
+            try {
+                repository.deletePhoto(locationId, locationPhotoId)
+                loadCommunityContent(locationId)
+            } catch (_: Throwable) {
+            }
+        }
+    }
+
 
     private fun loadCommunityContent(locationId: String) {
         viewModelScope.launch {
@@ -282,5 +311,75 @@ class MapViewModel(
                 _communityContent.value = RockCommunityContent()
             }
         }
+    }
+
+    fun submitCommentWithPhotos(context: Context, commentText: String, photoUris: List<Uri>) {
+        val locationId = _selectedLocation.value?.id ?: return
+        val uid = currentUser.value?.uid ?: return
+
+        viewModelScope.launch {
+            _isPosting.value = true
+            try {
+                val resolvedAuthor = authorName.value
+
+                // 1) create comment
+                val commentId = repository.addComment(
+                    locationId = locationId,
+                    userId = uid,
+                    author = resolvedAuthor,
+                    text = commentText
+                )
+
+                // 2) upload then attach up to 3 photos
+                val urls = uploadLocationPhotoUris(
+                    context = context,
+                    locationId = locationId,
+                    userId = uid,
+                    uris = photoUris.take(3)
+                )
+
+                urls.forEach { url ->
+                    repository.addPhoto(
+                        locationId = locationId,
+                        commentId = commentId,
+                        userId = uid,
+                        author = resolvedAuthor,
+                        caption = "",
+                        imageUrl = url
+                    )
+                }
+
+                _submissionMessages.tryEmit("Comment and photos submitted. Waiting for review.")
+                loadCommunityContent(locationId)
+            } catch (t: Throwable) {
+                Log.e("MapUpload", "Upload failed in submitCommentWithPhotos()", t)
+            } finally {
+                _isPosting.value = false
+                hideCommentForm()
+                _activeCommunityTab.value = CommunityTab.COMMENTS
+            }
+        }
+    }
+
+}
+// upload location photo to firebase
+private suspend fun uploadLocationPhotoUris(
+    context: Context,
+    locationId: String,
+    userId: String,
+    uris: List<Uri>
+): List<String> = withContext(Dispatchers.IO) {
+    val storageRef = Firebase.storage.reference
+        .child("locations")
+        .child(locationId)
+        .child("photos")
+        .child(userId)
+
+    uris.mapNotNull { uri ->
+        val fileRef = storageRef.child("${UUID.randomUUID()}.jpg")
+        Log.d("MapUpload", "Uploading uri=$uri")
+        val stream = context.contentResolver.openInputStream(uri) ?: return@mapNotNull null
+        stream.use { fileRef.putStream(it).await() }
+        fileRef.downloadUrl.await().toString()
     }
 }

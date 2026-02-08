@@ -8,6 +8,8 @@ import com.google.firebase.firestore.SetOptions
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 import kotlin.coroutines.suspendCoroutine
+import android.net.Uri
+import com.google.firebase.storage.FirebaseStorage
 
 // Performs Firestore reads/writes for the user's collection documents.
 
@@ -68,6 +70,7 @@ class CollectionRepository(
         }
 
     // Adds a new collection entry and records the dictionary unlock.
+    // Adds a new collection entry and records the dictionary unlock.
     suspend fun addRockToCollection(
         userId: String,
         rockId: String,
@@ -76,8 +79,8 @@ class CollectionRepository(
         thumbnailUrl: String? = null,
         latitude: Double? = null,
         longitude: Double? = null
-    ) {
-        return suspendCoroutine { cont ->
+    ): String =
+        suspendCoroutine { cont ->
             val data = hashMapOf(
                 "rockId" to rockId,
                 "rockSource" to rockSource,
@@ -95,7 +98,7 @@ class CollectionRepository(
 
             userCollectionRef(userId)
                 .add(data)
-                .addOnSuccessListener {
+                .addOnSuccessListener { docRef ->
                     // Persist dictionary unlock once discovered.
                     firestore.collection("users")
                         .document(userId)
@@ -103,13 +106,13 @@ class CollectionRepository(
                             mapOf("unlockedRockIds" to FieldValue.arrayUnion(rockId)),
                             SetOptions.merge()
                         )
-                    cont.resume(Unit)
+                    cont.resume(docRef.id)   // <-- THIS is the key change
                 }
                 .addOnFailureListener { e ->
                     cont.resumeWithException(e)
                 }
         }
-    }
+
 
     // Updates notes, IDs, and timestamps for one entry.
     suspend fun updateCollectionItem(
@@ -205,5 +208,78 @@ class CollectionRepository(
                     cont.resumeWithException(e)
                 }
         }
+    }
+
+    // function of following processes: convenient image upload of scanned rocks into collection
+    // finds existing id of rock collection entry
+    suspend fun findCollectionItemId(
+        userId: String,
+        rockId: String,
+        rockName: String
+    ): String? = suspendCoroutine { cont ->
+        userCollectionRef(userId)
+            .get()
+            .addOnSuccessListener { snapshot ->
+                val match = snapshot.documents.firstOrNull { doc ->
+                    doc.getString("rockId") == rockId ||
+                            doc.getString("rockName")?.equals(rockName, ignoreCase = true) == true
+                }
+                cont.resume(match?.id)
+            }
+            .addOnFailureListener { e ->
+                cont.resumeWithException(e)
+            }
+    }
+
+    // uploads image to firebase
+    private suspend fun uploadImageAndGetUrl(
+        userId: String,
+        rockId: String,
+        imageUri: Uri
+    ): String = suspendCoroutine { cont ->
+        val storageRef = FirebaseStorage.getInstance()
+            .reference
+            .child("users/$userId/collection/$rockId/${System.currentTimeMillis()}.jpg")
+
+        storageRef.putFile(imageUri)
+            .addOnSuccessListener {
+                storageRef.downloadUrl
+                    .addOnSuccessListener { uri ->
+                        cont.resume(uri.toString())
+                    }
+                    .addOnFailureListener { e ->
+                        cont.resumeWithException(e)
+                    }
+            }
+            .addOnFailureListener { e ->
+                cont.resumeWithException(e)
+            }
+    }
+
+
+    // adds image to personal notes
+    suspend fun addImageToPersonalNotes(
+        userId: String,
+        rockId: String,
+        rockName: String,
+        rockSource: String,
+        thumbnailUrl: String?,
+        imageUri: Uri
+    ) {
+        // 1. check if rock already exists
+        val existingItemId = findCollectionItemId(userId, rockId, rockName)
+
+        // 2. create collection entry if rock does not exist in user's collection
+        val itemId = existingItemId ?: addRockToCollection(
+            userId = userId,
+            rockId = rockId,
+            rockSource = rockSource,
+            rockName = rockName,
+            thumbnailUrl = thumbnailUrl
+        )
+
+        // 3) Upload image & append to userImageUrls
+        val downloadUrl = uploadImageAndGetUrl(userId, rockId, imageUri)
+        appendUserImageUrls(userId, itemId, listOf(downloadUrl))
     }
 }

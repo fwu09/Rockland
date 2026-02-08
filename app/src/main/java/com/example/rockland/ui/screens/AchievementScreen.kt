@@ -31,7 +31,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -51,13 +51,17 @@ import com.example.rockland.ui.theme.TextDark
 @Composable
 fun AchievementScreen(
     userId: String? = null,
-    viewModel: AwardsViewModel = viewModel(factory = AwardsViewModel.Factory(userId))
+    viewModel: AwardsViewModel = viewModel(factory = AwardsViewModel.Factory(userId)),
+    selectedTabIndex: Int? = null,
+    onTabSelected: ((Int) -> Unit)? = null
 ) {
     val tabs = listOf("Leaderboard", "In-Progress", "All")
-    val selectedTab = remember { mutableIntStateOf(0) }
+    val internalTab = rememberSaveable { mutableIntStateOf(0) }
+    val currentTab = selectedTabIndex ?: internalTab.intValue
+    val setTab: (Int) -> Unit = onTabSelected ?: { internalTab.intValue = it }
     val uiState by viewModel.uiState.collectAsState()
 
-    LaunchedEffect(selectedTab.intValue) {
+    LaunchedEffect(currentTab) {
         viewModel.loadAwards()
     }
 
@@ -77,13 +81,13 @@ fun AchievementScreen(
         Spacer(modifier = Modifier.height(12.dp))
 
         TabRow(
-            selectedTabIndex = selectedTab.intValue,
+            selectedTabIndex = currentTab,
             modifier = Modifier.fillMaxWidth()
         ) {
             tabs.forEachIndexed { index, title ->
                 Tab(
-                    selected = selectedTab.intValue == index,
-                    onClick = { selectedTab.intValue = index },
+                    selected = currentTab == index,
+                    onClick = { setTab(index) },
                     text = { Text(title) }
                 )
             }
@@ -91,7 +95,7 @@ fun AchievementScreen(
 
         Spacer(modifier = Modifier.height(12.dp))
 
-        when (selectedTab.intValue) {
+        when (currentTab) {
             0 -> LeaderboardTabContent(entries = uiState.leaderboard)
             1 -> InProgressTabContent(missions = uiState.missions.filter { !it.completed })
             2 -> AllTabContent(

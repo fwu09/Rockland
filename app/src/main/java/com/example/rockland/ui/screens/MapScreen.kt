@@ -58,6 +58,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -72,11 +73,10 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.core.content.ContextCompat
 import com.example.rockland.data.model.RockAnnotation
-import com.example.rockland.data.model.RockComment
+import com.example.rockland.data.model.LocationComment
 import com.example.rockland.data.model.RockCommunityContent
 import com.example.rockland.data.model.RockLocation
-import com.example.rockland.data.model.RockPhoto
-import com.example.rockland.data.repository.RockLocationRepository
+import com.example.rockland.data.model.LocationPhoto
 import com.example.rockland.ui.theme.BackgroundLight
 import com.example.rockland.ui.theme.Rock1
 import com.example.rockland.ui.theme.Rock3
@@ -93,17 +93,21 @@ import com.google.maps.android.compose.MapUiSettings
 import com.google.maps.android.compose.Marker
 import com.google.maps.android.compose.MarkerState
 import com.google.maps.android.compose.rememberCameraPositionState
+import androidx.compose.foundation.clickable
+import com.example.rockland.util.TimeFormatter
+import kotlinx.coroutines.launch
 
 private val RockLocation.coordinates: LatLng
     get() = LatLng(latitude, longitude)
 
 @Composable
 fun MapScreen(
-    viewModel: MapViewModel = MapViewModel(RockLocationRepository()),
+    viewModel: MapViewModel = androidx.lifecycle.viewmodel.compose.viewModel(),
     userViewModel: UserViewModel? = null,
     onInfoDetailsClick: () -> Unit = {},
     onAddCommentClick: () -> Unit = {}
-) {
+)
+ {
     val context = LocalContext.current
     val filtersExpanded = remember { mutableStateOf(false) }
     val selectedLocation by viewModel.selectedLocation.collectAsState()
@@ -112,10 +116,13 @@ fun MapScreen(
     val locationError by viewModel.locationError.collectAsState()
     val recenterRequests by viewModel.recenterRequests.collectAsState()
     val currentUserId by viewModel.currentUserId.collectAsState()
+    val isPosting by viewModel.isPosting.collectAsState()
     val infoCardVisible = remember { mutableStateOf(false) }
     val cameraState = rememberCameraPositionState()
     val showDetailsDialog = remember { mutableStateOf(false) }
     val sectionScrollState = rememberScrollState()
+    val selectedPhotoForDialog = remember { mutableStateOf<LocationPhoto?>(null) }
+    val suppressAwardUntil = remember { mutableLongStateOf(0L) }
 
     // Location permission state
     val hasLocationPermission = remember { mutableStateOf(false) }
@@ -130,8 +137,19 @@ fun MapScreen(
 
     LaunchedEffect(Unit) {
         if (userViewModel != null) {
-            viewModel.awardMessages.collect { msg ->
-                userViewModel.showSuccess(msg)
+            launch {
+                viewModel.awardMessages.collect { msg ->
+                    val now = System.currentTimeMillis()
+                    if (now >= suppressAwardUntil.longValue) {
+                        userViewModel.showSuccess(msg)
+                    }
+                }
+            }
+            launch {
+                viewModel.submissionMessages.collect { msg ->
+                    suppressAwardUntil.longValue = System.currentTimeMillis() + 4500L
+                    userViewModel.showInfo(msg)
+                }
             }
         }
         val fineGranted = ContextCompat.checkSelfPermission(
@@ -172,6 +190,19 @@ fun MapScreen(
         }
     val commentFormScroll = rememberScrollState()
     val photoFormScroll = rememberScrollState()
+    val commentPhotoUris = remember { mutableStateOf<List<Uri>>(emptyList())}
+
+
+    val commentPhotoPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri ->
+        if (uri != null) {
+            val current = commentPhotoUris.value
+            if (current.size < 3) {
+                commentPhotoUris.value = current + uri
+            }
+        }
+    }
 
     LaunchedEffect(recenterRequests) {
         if (recenterRequests > 0) {
@@ -190,6 +221,66 @@ fun MapScreen(
             location = currentSelection,
             onDismiss = { showDetailsDialog.value = false }
         )
+    }
+    // show popup dialog when photo is selected in "Photos" section
+    selectedPhotoForDialog.value?.let { photo ->
+        val linkedComment = photo.commentId?.let { cid ->
+            communityContent.comments.firstOrNull { it.commentId == cid }
+        }
+        val canDelete = photo.userId.isNotBlank() && photo.userId == currentUserId
+
+        Dialog(onDismissRequest = { selectedPhotoForDialog.value = null }) {
+            Card(
+                shape = RoundedCornerShape(18.dp),
+                colors = CardDefaults.cardColors(containerColor = Color.White),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp)
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    AsyncImage(
+                        model = photo.imageUrl,
+                        contentDescription = null,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(220.dp)
+                            .clip(RoundedCornerShape(14.dp))
+                    )
+                    // show linked comment/original comment photo is from
+                    if (linkedComment != null) {
+                        Text(linkedComment.text, style = MaterialTheme.typography.bodyMedium)
+                        Text(
+                            "- ${linkedComment.author}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = TextDark.copy(alpha = 0.6f)
+                        )
+                    } else { //or show the caption that came with the photo input
+                        Text(photo.caption, style = MaterialTheme.typography.bodyMedium)
+                    }
+
+                    TextButton(
+                        modifier = Modifier.align(Alignment.End),
+                        onClick = { selectedPhotoForDialog.value = null }
+                    ) {
+                        Text("Close")
+                    }
+
+                    if (canDelete) {
+                        TextButton(
+                            onClick = {
+                                viewModel.deletePhoto(photo.locationPhotoId)
+                                selectedPhotoForDialog.value = null
+                            }
+                        ) {
+                            Text("Delete photo")
+                        }
+                    }
+                }
+            }
+        }
     }
 
     Box(
@@ -332,6 +423,38 @@ fun MapScreen(
                     text = "No rock distribution data found in this area. Be the first to log a discovery!.",
                     color = TextDark
                 )
+            }
+        }
+
+        if (isPosting) {
+            Dialog(onDismissRequest = {}) {
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = Color.White),
+                    shape = RoundedCornerShape(16.dp)
+                ) {
+                    Column(
+                        modifier = Modifier.padding(horizontal = 22.dp, vertical = 18.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        CircularProgressIndicator(
+                            color = Rock1,
+                            modifier = Modifier.size(26.dp),
+                            strokeWidth = 2.dp
+                        )
+                        Text(
+                            text = "Submitting...",
+                            color = TextDark,
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Text(
+                            text = "Please wait while we upload your content",
+                            color = TextDark.copy(alpha = 0.7f),
+                            style = MaterialTheme.typography.labelSmall
+                        )
+                    }
+                }
             }
         }
 
@@ -511,8 +634,8 @@ fun MapScreen(
                                     tab = activeCommunityTab,
                                     content = communityContent,
                                     currentUserId = currentUserId,
-                                    onEditComment = { id, text -> viewModel.editComment(id, text) },
-                                    onDeleteComment = { id -> viewModel.deleteComment(id) }
+                                    onDeleteComment = { id -> viewModel.deleteComment(id) },
+                                    onPhotoClick = { photo -> selectedPhotoForDialog.value = photo }
                                 )
                             }
                         }
@@ -521,23 +644,81 @@ fun MapScreen(
                             Box(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .heightIn(max = 220.dp)
+                                    .heightIn(max = 260.dp) // a bit taller for preview
                                     .verticalScroll(commentFormScroll)
                             ) {
                                 CommunityInputForm(
-                                    title = "Share a comment",
-                                    placeholder = "Describe what you saw or learned",
+                                    title = "Share a comment!",
+                                    placeholder = "Any interesting observations?",
                                     value = commentDraft.value,
                                     onValueChange = { commentDraft.value = it },
                                     onSubmit = {
-                                        if (commentDraft.value.isNotBlank()) {
-                                            viewModel.submitComment(commentDraft.value.trim())
+                                        val text = commentDraft.value.trim()
+                                        if (text.isNotBlank()) {
+                                            val photos = commentPhotoUris.value
+
+                                            if (photos.isNotEmpty()) {
+                                                viewModel.submitCommentWithPhotos(context, text, photos)
+                                            } else {
+                                                viewModel.submitComment(text)
+                                            }
+
                                             commentDraft.value = ""
+                                            commentPhotoUris.value = emptyList()
                                         }
                                     },
                                     onCancel = {
                                         viewModel.hideCommentForm()
                                         commentDraft.value = ""
+                                        commentPhotoUris.value = emptyList()
+                                    },
+                                    additionalContent = {
+                                        Column(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                                        ) {
+                                            Button(
+                                                onClick = { if (commentPhotoUris.value.size < 3) commentPhotoPickerLauncher.launch("image/*") },
+                                                enabled = commentPhotoUris.value.size < 3,
+                                                colors = ButtonDefaults.buttonColors(containerColor = Rock3),
+                                                modifier = Modifier.fillMaxWidth()
+                                            ) {
+                                                Text(if (commentPhotoUris.value.size < 3) "Attach photo (${commentPhotoUris.value.size}/3)" else "Max 3 photos")
+                                            }
+
+                                            if (commentPhotoUris.value.isEmpty()) {
+                                                Text("No photos selected", color = TextDark.copy(alpha = 0.6f))
+                                            } else {
+                                                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                                    items(commentPhotoUris.value) { uri ->
+                                                        Box {
+                                                            AsyncImage(
+                                                                model = uri,
+                                                                contentDescription = null,
+                                                                modifier = Modifier
+                                                                    .size(90.dp)
+                                                                    .clip(RoundedCornerShape(10.dp))
+                                                            )
+                                                            TextButton(
+                                                                onClick = {
+                                                                    commentPhotoUris.value = commentPhotoUris.value.filterNot { it == uri }
+                                                                },
+                                                                modifier = Modifier.align(Alignment.TopEnd)
+                                                            ) {
+                                                                Text("✕")
+                                                            }
+                                                        }
+                                                    }
+                                                }
+
+                                                TextButton(
+                                                    onClick = { commentPhotoUris.value = emptyList() }
+                                                ) {
+                                                    Text("Remove all")
+                                                }
+                                            }
+                                        }
+
                                     }
                                 )
                             }
@@ -551,18 +732,25 @@ fun MapScreen(
                                     .verticalScroll(photoFormScroll)
                             ) {
                                 CommunityInputForm(
-                                    title = "Add photo caption",
-                                    placeholder = "What makes this shot meaningful?",
+                                    title = "Add Photo Caption",
+                                    placeholder = "Any remarks about the rock identified?",
                                     value = photoCaptionDraft.value,
                                     onValueChange = { photoCaptionDraft.value = it },
                                     onSubmit = {
-                                        if (photoCaptionDraft.value.isNotBlank()) {
+                                        val caption = photoCaptionDraft.value.trim()
+                                        val uri = photoUri.value
+
+                                        if (caption.isNotBlank() && uri != null) {
                                             viewModel.submitPhoto(
-                                                photoCaptionDraft.value.trim(),
-                                                photoUri.value?.toString().orEmpty()
+                                                context = context,
+                                                caption = caption,
+                                                imageUri = uri
                                             )
                                             photoCaptionDraft.value = ""
                                             photoUri.value = null
+                                        } else {
+                                            if (uri == null) userViewModel?.showError("Please pick a photo first")
+                                            if (caption.isBlank()) userViewModel?.showError("Please enter a caption")
                                         }
                                     },
                                     onCancel = {
@@ -693,9 +881,10 @@ private fun CommunityContentSection(
     tab: CommunityTab,
     content: RockCommunityContent,
     currentUserId: String?,
-    onEditComment: (String, String) -> Unit,
-    onDeleteComment: (String) -> Unit
+    onDeleteComment: (String) -> Unit,
+    onPhotoClick: (LocationPhoto) -> Unit
 ) {
+
     Surface(
         modifier = Modifier
             .fillMaxWidth()
@@ -708,14 +897,21 @@ private fun CommunityContentSection(
                 .fillMaxWidth()
                 .padding(12.dp)
         ) {
+
             when (tab) {
                 CommunityTab.COMMENTS -> CommentsSection(
                     comments = content.comments,
+                    photos = content.photos,
                     currentUserId = currentUserId,
-                    onEdit = onEditComment,
-                    onDelete = onDeleteComment
+                    onDelete = onDeleteComment,
+                    onPhotoClick = onPhotoClick
                 )
-                CommunityTab.PHOTOS -> PhotosSection(content.photos)
+
+                CommunityTab.PHOTOS -> PhotosSection(
+                    photos = content.photos,
+                    onPhotoClick = onPhotoClick
+                )
+
                 CommunityTab.ANNOTATIONS -> AnnotationsSection(content.annotations)
             }
         }
@@ -724,13 +920,13 @@ private fun CommunityContentSection(
 
 @Composable
 private fun CommentsSection(
-    comments: List<RockComment>,
+    comments: List<LocationComment>,
+    photos: List<LocationPhoto>,
     currentUserId: String?,
-    onEdit: (String, String) -> Unit,
-    onDelete: (String) -> Unit
-) {
-    val editingCommentId = remember { mutableStateOf<String?>(null) }
-    var editDraft by remember { mutableStateOf("") }
+    onDelete: (String) -> Unit,
+    onPhotoClick: (LocationPhoto) -> Unit
+)
+ {
 
     if (comments.isEmpty()) {
         Text(
@@ -746,7 +942,7 @@ private fun CommentsSection(
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         comments.forEach { comment ->
-            var menuExpanded by remember(comment.id) { mutableStateOf(false) }
+            var menuExpanded by remember(comment.commentId) { mutableStateOf(false) }
             val isOwner = comment.userId.isNotBlank() && comment.userId == currentUserId
             Surface(
                 modifier = Modifier
@@ -779,6 +975,15 @@ private fun CommentsSection(
                                 color = TextDark.copy(alpha = 0.6f),
                                 style = MaterialTheme.typography.bodySmall
                             )
+                            val timeText = comment.updatedAt?.let {
+                                "Edited ${TimeFormatter.formatLocal(it)}"
+                            } ?: TimeFormatter.formatLocal(comment.timestamp)
+
+                            Text(
+                                text = timeText,
+                                color = TextDark.copy(alpha = 0.45f),
+                                style = MaterialTheme.typography.labelSmall
+                            )
                         }
                         if (isOwner) {
                             Box {
@@ -793,18 +998,10 @@ private fun CommentsSection(
                                     onDismissRequest = { menuExpanded = false }
                                 ) {
                                     DropdownMenuItem(
-                                        text = { Text("Edit") },
-                                        onClick = {
-                                            menuExpanded = false
-                                            editDraft = comment.text
-                                            editingCommentId.value = comment.id
-                                        }
-                                    )
-                                    DropdownMenuItem(
                                         text = { Text("Delete") },
                                         onClick = {
                                             menuExpanded = false
-                                            onDelete(comment.id)
+                                            onDelete(comment.commentId)
                                         }
                                     )
                                 }
@@ -813,62 +1010,33 @@ private fun CommentsSection(
                     }
                 }
             }
-        }
-    }
+            val attached = photos.filter { it.commentId == comment.commentId }
 
-    if (editingCommentId.value != null) {
-        Dialog(onDismissRequest = { editingCommentId.value = null }) {
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(containerColor = Color.White)
-            ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp)
+            if (attached.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(8.dp))
+                LazyRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Text(
-                        text = "Edit Comment",
-                        fontSize = 16.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = TextDark
-                    )
-                    Spacer(modifier = Modifier.height(10.dp))
-                    TextField(
-                        value = editDraft,
-                        onValueChange = { editDraft = it },
-                        modifier = Modifier.fillMaxWidth(),
-                        placeholder = { Text("Update your comment") }
-                    )
-                    Spacer(modifier = Modifier.height(12.dp))
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.End
-                    ) {
-                        TextButton(onClick = { editingCommentId.value = null }) {
-                            Text("Cancel")
-                        }
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Button(
-                            onClick = {
-                                val commentId = editingCommentId.value ?: return@Button
-                                onEdit(commentId, editDraft.trim())
-                                editingCommentId.value = null
-                            },
-                            enabled = editDraft.isNotBlank()
-                        ) {
-                            Text("Save")
-                        }
+                    items(attached) { photo ->
+                        AsyncImage(
+                            model = photo.imageUrl,
+                            contentDescription = null,
+                            modifier = Modifier
+                                .size(90.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .clickable { onPhotoClick(photo) }
+                        )
                     }
                 }
             }
         }
     }
 }
-
 @Composable
-private fun PhotosSection(photos: List<RockPhoto>) {
+private fun PhotosSection(
+    photos: List<LocationPhoto>,
+    onPhotoClick: (LocationPhoto) -> Unit
+) {
     if (photos.isEmpty()) {
         Text(
             text = "No photos yet. Upload a snapshot to share your insight.",
@@ -904,7 +1072,15 @@ private fun PhotosSection(photos: List<RockPhoto>) {
                             .background(Rock3.copy(alpha = 0.2f)),
                         contentAlignment = Alignment.Center
                     ) {
-                        Text(text = "Photo", color = Rock1)
+                        AsyncImage(
+                            model = photo.imageUrl,
+                            contentDescription = null,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(100.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .clickable { onPhotoClick(photo) }
+                        )
                     }
                     Text(
                         text = photo.caption,
@@ -966,6 +1142,7 @@ private fun AnnotationsSection(annotations: List<RockAnnotation>) {
         }
     }
 }
+
 
 @Composable
 private fun CommunityInputForm(
@@ -1067,6 +1244,7 @@ private fun RockDetailsDialog(location: RockLocation, onDismiss: () -> Unit) {
             }
         }
     }
+
 }
 
 private fun Double.format(decimals: Int): String {
