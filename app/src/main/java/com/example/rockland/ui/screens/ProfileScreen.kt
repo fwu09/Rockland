@@ -1,10 +1,5 @@
 // Screen presenting the user's profile stats and navigation actions.
 package com.example.rockland.ui.screens
-import androidx.compose.animation.animateContentSize
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.tween
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -16,49 +11,43 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.EmojiEvents
-import androidx.compose.material.icons.filled.Explore
-import androidx.compose.material.icons.filled.Landscape
-import androidx.compose.material.icons.filled.Map
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.Star
+import androidx.compose.material3.BasicAlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.rockland.R
 import com.example.rockland.data.datasource.remote.UserData
-import com.example.rockland.ui.theme.BackgroundDark
 import com.example.rockland.ui.theme.Rock1
 import com.example.rockland.ui.theme.Rock3
-import com.example.rockland.ui.theme.RocklandTheme
 import com.example.rockland.ui.theme.TextDark
-import com.example.rockland.ui.theme.TextLight
 
 // Profile screen component
 @Composable
@@ -68,11 +57,19 @@ fun ProfileScreen(
     onLogoutClick: () -> Unit = {},
     onBackClick: () -> Unit = {}
 ) {
-    // Calculate level based on experience points
-    val level = calculateLevel(userData?.experience ?: 0)
-    val currentLevelExp = calculateExpForLevel(level)
-    val nextLevelExp = calculateExpForLevel(level + 1)
-    val expProgress = calculateExpProgress(userData?.experience ?: 0, currentLevelExp, nextLevelExp)
+    val roleLabel = formatRoleLabel(userData?.role ?: "nature_enthusiast")
+    val points = userData?.points ?: 0
+    val missionsCompleted = userData?.missionsCompleted ?: 0
+    val achievementsCompleted = userData?.achievementsCompleted ?: 0
+    var showExpertDialog by remember { mutableStateOf(false) }
+
+    var fullName by remember {
+        mutableStateOf("${userData?.firstName ?: ""} ${userData?.lastName ?: ""}".trim())
+    }
+    var expertise by remember { mutableStateOf("") }
+    var yearsOfExp by remember { mutableStateOf("") }
+    var portfolioLink by remember { mutableStateOf("") }
+    var notes by remember { mutableStateOf("") }
 
     Column(
         modifier = Modifier
@@ -114,14 +111,14 @@ fun ProfileScreen(
 
         Spacer(modifier = Modifier.height(8.dp))
 
-        // Profile header with level info
+        // Profile header
         Card(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp)
                 .shadow(8.dp, RoundedCornerShape(16.dp)),
             colors = CardDefaults.cardColors(
-                containerColor = BackgroundDark
+                containerColor = Rock1.copy(alpha = 0.18f)
             ),
             shape = RoundedCornerShape(16.dp)
         ) {
@@ -131,25 +128,6 @@ fun ProfileScreen(
                     .padding(16.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                // Level badge
-                Box(
-                    modifier = Modifier
-                        .size(32.dp)
-                        .clip(CircleShape)
-                        .background(Rock1)
-                        .align(Alignment.CenterHorizontally),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = "$level",
-                        fontSize = 16.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color.White
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(8.dp))
-
                 // Profile photo placeholder
                 Box(
                     modifier = Modifier
@@ -171,84 +149,48 @@ fun ProfileScreen(
 
                 // User name
                 Text(
-                    text = "${userData?.firstName ?: ""} ${userData?.lastName ?: ""}",
-                    fontSize = 26.sp,
+                    text = fullName,
+                    fontSize = 24.sp,
                     fontWeight = FontWeight.ExtraBold,
-                    color = TextLight,
+                    color = TextDark,
                     textAlign = TextAlign.Center,
                     modifier = Modifier.fillMaxWidth()
                 )
 
-                // Rank title
-                Text(
-                    text = getRankTitle(level),
-                    fontSize = 16.sp,
-                    color = Color(0xFFFFD700),
-                    fontWeight = FontWeight.Medium
-                )
+                Spacer(modifier = Modifier.height(6.dp))
 
-                Spacer(modifier = Modifier.height(4.dp))
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(Rock1.copy(alpha = 0.2f))
+                        .padding(horizontal = 12.dp, vertical = 4.dp)
+                ) {
+                    Text(
+                        text = roleLabel,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = TextDark
+                    )
+                }
 
                 // Join date
                 Text(
                     text = "${stringResource(R.string.joined)} ${userData?.joinDate ?: ""}",
                     fontSize = 14.sp,
-                    color = TextLight.copy(alpha = 0.7f)
+                    color = TextDark.copy(alpha = 0.7f)
                 )
-
-                Spacer(modifier = Modifier.height(16.dp))
-
-                // Experience progress
-                Column(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    Text(
-                        text = "Level Progress",
-                        fontSize = 14.sp,
-                        color = TextLight,
-                        fontWeight = FontWeight.Medium
-                    )
-
-                    Spacer(modifier = Modifier.height(4.dp))
-
-                    // Animated progress bar
-                    val animatedProgress by animateFloatAsState(
-                        targetValue = expProgress,
-                        animationSpec = tween(1000, easing = LinearEasing),
-                        label = "exp_progress"
-                    )
-
-                    LinearProgressIndicator(
-                        progress = { animatedProgress },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(8.dp)
-                            .clip(RoundedCornerShape(4.dp)),
-                        color = Rock1,
-                        trackColor = Color.Gray.copy(alpha = 0.3f)
-                    )
-
-                    Spacer(modifier = Modifier.height(4.dp))
-
-                    Text(
-                        text = "${userData?.experience ?: 0}/${nextLevelExp} XP",
-                        fontSize = 12.sp,
-                        color = TextLight.copy(alpha = 0.7f)
-                    )
-                }
             }
         }
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        // Game stats section
+        // Gamification summary
         Card(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp),
             colors = CardDefaults.cardColors(
-                containerColor = Color.White
+                containerColor = Rock1.copy(alpha = 0.12f)
             ),
             shape = RoundedCornerShape(16.dp)
         ) {
@@ -258,78 +200,7 @@ fun ProfileScreen(
                     .padding(16.dp)
             ) {
                 Text(
-                    text = "Game Stats",
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = TextDark
-                )
-
-                Spacer(modifier = Modifier.height(16.dp))
-
-                // Stats grid - top row
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceEvenly
-                ) {
-                    GameStatItem(
-                        icon = Icons.Default.Landscape,
-                        value = userData?.checkins ?: 0,
-                        label = stringResource(R.string.checkins),
-                        color = Rock1
-                    )
-
-                    GameStatItem(
-                        icon = Icons.Default.Explore,
-                        value = userData?.observations ?: 0,
-                        label = stringResource(R.string.observations),
-                        color = Color(0xFF4CAF50)
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(16.dp))
-
-                // Stats grid - bottom row
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceEvenly
-                ) {
-                    GameStatItem(
-                        icon = Icons.Default.Map,
-                        value = userData?.states ?: 0,
-                        label = stringResource(R.string.states),
-                        color = Color(0xFF2196F3)
-                    )
-
-                    GameStatItem(
-                        icon = Icons.Default.EmojiEvents,
-                        value = userData?.countries ?: 0,
-                        label = stringResource(R.string.countries),
-                        color = Color(0xFFFFC107)
-                    )
-                }
-            }
-        }
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        // Achievements section
-        Card(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp)
-                .animateContentSize(),
-            colors = CardDefaults.cardColors(
-                containerColor = Color.White
-            ),
-            shape = RoundedCornerShape(16.dp)
-        ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(16.dp)
-            ) {
-                Text(
-                    text = "Recent Achievements",
+                    text = "Progress Overview",
                     fontSize = 18.sp,
                     fontWeight = FontWeight.Bold,
                     color = TextDark
@@ -337,76 +208,79 @@ fun ProfileScreen(
 
                 Spacer(modifier = Modifier.height(12.dp))
 
-                // List of achievements
-                AchievementItem(
-                    title = "First Discovery",
-                    description = "Found your first rock formation",
-                    progress = 1.0f,
-                    isCompleted = true
+                SummaryStatItem(
+                    modifier = Modifier.fillMaxWidth(),
+                    value = points.toString(),
+                    label = "Points"
                 )
 
-                AchievementItem(
-                    title = "Explorer",
-                    description = "Visit 5 different locations",
-                    progress = (userData?.checkins ?: 0) / 5f,
-                    isCompleted = (userData?.checkins ?: 0) >= 5
+                Spacer(modifier = Modifier.height(10.dp))
+
+                SummaryStatItem(
+                    modifier = Modifier.fillMaxWidth(),
+                    value = achievementsCompleted.toString(),
+                    label = "Achievements"
                 )
 
-                AchievementItem(
-                    title = "Geologist",
-                    description = "Identify 10 different rock types",
-                    progress = (userData?.observations ?: 0) / 10f,
-                    isCompleted = (userData?.observations ?: 0) >= 10
+                Spacer(modifier = Modifier.height(10.dp))
+
+                SummaryStatItem(
+                    modifier = Modifier.fillMaxWidth(),
+                    value = missionsCompleted.toString(),
+                    label = "Missions"
                 )
             }
         }
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        // Next challenge card
+        // Verified expert application entry
         Card(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp),
             colors = CardDefaults.cardColors(
-                containerColor = Rock1.copy(alpha = 0.1f)
+                containerColor = Color(0xFF1E1E1E)
             ),
-            border = BorderStroke(1.dp, Rock1),
             shape = RoundedCornerShape(16.dp)
         ) {
-            Row(
+            Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(16.dp),
-                verticalAlignment = Alignment.CenterVertically
+                    .padding(16.dp)
             ) {
-                Icon(
-                    imageVector = Icons.Default.Star,
-                    contentDescription = null,
-                    tint = Rock1,
-                    modifier = Modifier.size(36.dp)
+                Text(
+                    text = "Are you a Verified Expert?",
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White
                 )
 
-                Spacer(modifier = Modifier.width(16.dp))
+                Spacer(modifier = Modifier.height(8.dp))
 
-                Column {
-                    Text(
-                        text = "Next Challenge",
-                        fontSize = 16.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = TextDark
-                    )
+                Text(
+                    text = "Complete the application form to prove you are an expert and gain access to more permissions!",
+                    fontSize = 13.sp,
+                    color = Color.White.copy(alpha = 0.7f)
+                )
 
+                Spacer(modifier = Modifier.height(14.dp))
+
+                Button(
+                    onClick = { showExpertDialog = true },
+                    modifier = Modifier.align(Alignment.CenterHorizontally),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE8D2B5)),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
                     Text(
-                        text = "Create a check-in to level up!",
-                        fontSize = 14.sp,
-                        color = TextDark.copy(alpha = 0.7f)
+                        text = "Apply",
+                        fontWeight = FontWeight.SemiBold,
+                        color = Color(0xFF1E1E1E)
                     )
                 }
             }
         }
 
-        Spacer(modifier = Modifier.weight(1f))
         Spacer(modifier = Modifier.height(16.dp))
 
         // Logout button
@@ -430,43 +304,44 @@ fun ProfileScreen(
 
         Spacer(modifier = Modifier.height(56.dp))
     }
+
+    if (showExpertDialog) {
+        VerifiedExpertDialog(
+            fullName = fullName,
+            expertise = expertise,
+            yearsOfExp = yearsOfExp,
+            portfolioLink = portfolioLink,
+            notes = notes,
+            onFullNameChange = { fullName = it },
+            onExpertiseChange = { expertise = it },
+            onYearsChange = { yearsOfExp = it },
+            onPortfolioChange = { portfolioLink = it },
+            onNotesChange = { notes = it },
+            onDismiss = { showExpertDialog = false },
+            onSubmit = { showExpertDialog = false }
+        )
+    }
 }
 
-// Game stat item component with icon
 @Composable
-private fun GameStatItem(
-    icon: ImageVector,
-    value: Int,
-    label: String,
-    color: Color
+private fun SummaryStatItem(
+    modifier: Modifier = Modifier,
+    value: String,
+    label: String
 ) {
     Column(
+        modifier = modifier
+            .clip(RoundedCornerShape(12.dp))
+            .background(Color.White)
+            .padding(vertical = 10.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Box(
-            modifier = Modifier
-                .size(56.dp)
-                .clip(RoundedCornerShape(16.dp))
-                .background(color.copy(alpha = 0.1f)),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = null,
-                tint = color,
-                modifier = Modifier.size(28.dp)
-            )
-        }
-
-        Spacer(modifier = Modifier.height(8.dp))
-
         Text(
-            text = value.toString(),
-            fontSize = 20.sp,
+            text = value,
+            fontSize = 18.sp,
             fontWeight = FontWeight.Bold,
             color = TextDark
         )
-
         Text(
             text = label,
             fontSize = 12.sp,
@@ -475,137 +350,109 @@ private fun GameStatItem(
     }
 }
 
-// Achievement item component
+private fun formatRoleLabel(role: String): String {
+    return when (role.lowercase()) {
+        "verified_expert" -> "Verified Expert"
+        "user_admin" -> "User Admin"
+        else -> "Nature Enthusiast"
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun AchievementItem(
-    title: String,
-    description: String,
-    progress: Float,
-    isCompleted: Boolean
+private fun VerifiedExpertDialog(
+    fullName: String,
+    expertise: String,
+    yearsOfExp: String,
+    portfolioLink: String,
+    notes: String,
+    onFullNameChange: (String) -> Unit,
+    onExpertiseChange: (String) -> Unit,
+    onYearsChange: (String) -> Unit,
+    onPortfolioChange: (String) -> Unit,
+    onNotesChange: (String) -> Unit,
+    onDismiss: () -> Unit,
+    onSubmit: () -> Unit
 ) {
-    val progressCapped = progress.coerceIn(0f, 1f)
-    val animatedProgress by animateFloatAsState(
-        targetValue = progressCapped,
-        animationSpec = tween(1000, easing = LinearEasing),
-        label = "achievement_progress"
-    )
-
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 6.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = if (isCompleted) Color(0xFFECF6EC) else Color(0xFFF8F8F8)
-        ),
-        shape = RoundedCornerShape(12.dp)
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(12.dp)
+    BasicAlertDialog(onDismissRequest = onDismiss) {
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(16.dp),
+            colors = CardDefaults.cardColors(containerColor = Color.White)
         ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                if (isCompleted) {
-                    Icon(
-                        imageVector = Icons.Default.Star,
-                        contentDescription = null,
-                        tint = Color(0xFFFFD700),
-                        modifier = Modifier.size(20.dp)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                }
-
-                Text(
-                    text = title,
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = if (isCompleted) Color(0xFF388E3C) else TextDark
-                )
-            }
-
-            Spacer(modifier = Modifier.height(4.dp))
-
-            Text(
-                text = description,
-                fontSize = 14.sp,
-                color = TextDark.copy(alpha = 0.7f)
-            )
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            LinearProgressIndicator(
-                progress = { animatedProgress },
+            Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(6.dp)
-                    .clip(RoundedCornerShape(3.dp)),
-                color = if (isCompleted) Color(0xFF388E3C) else Rock1,
-                trackColor = Color.Gray.copy(alpha = 0.2f)
-            )
+                    .padding(16.dp)
+            ) {
+                Text(
+                    text = "Verified Expert Application",
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = TextDark
+                )
 
-            Spacer(modifier = Modifier.height(4.dp))
+                Spacer(modifier = Modifier.height(12.dp))
 
-            Text(
-                text = "${(progressCapped * 100).toInt()}% Complete",
-                fontSize = 12.sp,
-                color = TextDark.copy(alpha = 0.5f),
-                modifier = Modifier.align(Alignment.End)
-            )
+                OutlinedTextField(
+                    value = fullName,
+                    onValueChange = onFullNameChange,
+                    label = { Text("Full name") },
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                OutlinedTextField(
+                    value = expertise,
+                    onValueChange = onExpertiseChange,
+                    label = { Text("Expertise area") },
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                OutlinedTextField(
+                    value = yearsOfExp,
+                    onValueChange = onYearsChange,
+                    label = { Text("Years of experience") },
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                OutlinedTextField(
+                    value = portfolioLink,
+                    onValueChange = onPortfolioChange,
+                    label = { Text("Portfolio link (optional)") },
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                OutlinedTextField(
+                    value = notes,
+                    onValueChange = onNotesChange,
+                    label = { Text("Notes for admin (optional)") },
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End
+                ) {
+                    Button(
+                        onClick = onSubmit,
+                        colors = ButtonDefaults.buttonColors(containerColor = Rock1),
+                        shape = RoundedCornerShape(10.dp)
+                    ) {
+                        Text(text = "Submit")
+                    }
+                }
+            }
         }
     }
 }
 
-// Helper functions for level calculations
-private fun calculateLevel(exp: Int): Int {
-    // Simple level formula: level = sqrt(exp / 100)
-    return kotlin.math.sqrt(exp / 100.0).toInt() + 1
-}
-
-private fun calculateExpForLevel(level: Int): Int {
-    // Experience required for a given level
-    return 100 * (level - 1) * (level - 1)
-}
-
-private fun calculateExpProgress(currentExp: Int, currentLevelExp: Int, nextLevelExp: Int): Float {
-    if (nextLevelExp <= currentLevelExp) return 1.0f
-    val levelExpRange = nextLevelExp - currentLevelExp
-    val userExpInLevel = currentExp - currentLevelExp
-    return (userExpInLevel.toFloat() / levelExpRange).coerceIn(0f, 1f)
-}
-
-private fun getRankTitle(level: Int): String {
-    return when {
-        level < 3 -> "Novice Explorer"
-        level < 5 -> "Rock Enthusiast"
-        level < 10 -> "Geology Adventurer"
-        level < 15 -> "Master Geologist"
-        level < 20 -> "Rock Connoisseur"
-        else -> "Legendary Explorer"
-    }
-}
-
-// Extended UserData class for preview
-private val previewUserData = UserData(
-    userId = "123",
-    firstName = "Test",
-    lastName = "123",
-    email = "xxxx@gmail.com",
-    joinDate = "October 29, 2025",
-    checkins = 5,
-    observations = 10,
-    states = 2,
-    countries = 1,
-    experience = 350
-)
-
-@Preview(showBackground = true)
-@Composable
-fun ProfileScreenPreview() {
-    RocklandTheme {
-        ProfileScreen(
-            userData = previewUserData
-        )
-    }
-}

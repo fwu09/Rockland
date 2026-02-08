@@ -55,7 +55,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
@@ -171,21 +170,6 @@ fun CollectionScreen(
     }
 }
 
-@Preview(showBackground = true)
-@Composable
-private fun CollectionScreenPreview() {
-    val sampleItems = listOf(
-        CollectionItem(rockName = "Granite", notes = "Coarse-grained, light-colored rock."),
-        CollectionItem(rockName = "Basalt", notes = "Dark volcanic rock found near the coast.")
-    )
-
-    CollectionsTabContent(
-        items = sampleItems,
-        isLoading = false,
-        onDelete = {},
-        onSelect = {}
-    )
-}
 
 @Composable
 private fun CollectionsTabContent(

@@ -43,14 +43,12 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.rockland.R
 import com.example.rockland.ui.theme.BackgroundLight
 import com.example.rockland.ui.theme.Rock1
 import com.example.rockland.ui.theme.Rock3
-import com.example.rockland.ui.theme.RocklandTheme
 import com.example.rockland.ui.theme.TextDark
 
 // Validates email input with Android's email pattern.
@@ -289,10 +287,3 @@ fun LoginScreen(
     }
 }
 
-@Preview(showBackground = true)
-@Composable
-fun LoginScreenPreview() {
-    RocklandTheme {
-        LoginScreen()
-    }
-}

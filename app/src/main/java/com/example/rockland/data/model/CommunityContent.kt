@@ -3,6 +3,7 @@ package com.example.rockland.data.model
 // Represents a single comment attached to a rock location.
 data class RockComment(
     val id: String,
+    val userId: String = "",
     val author: String,
     val text: String,
     val timestamp: Long
