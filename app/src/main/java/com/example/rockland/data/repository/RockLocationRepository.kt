@@ -1,20 +1,14 @@
-package com.example.rockland.viewmodel
+package com.example.rockland.data.repository
 
+import com.example.rockland.data.model.RockLocation
 import com.google.firebase.firestore.FirebaseFirestore
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 import kotlin.coroutines.suspendCoroutine
 
-data class RockLocation(
-    val id: String = "",
-    val name: String = "",
-    val description: String = "",
-    val latitude: Double = 0.0,
-    val longitude: Double = 0.0,
-    val category: String = ""
-)
-
-
+/**
+ * Repository responsible for loading rock distribution locations from Firestore.
+ */
 class RockLocationRepository(
     private val firestore: FirebaseFirestore = FirebaseFirestore.getInstance()
 ) {
@@ -48,4 +42,3 @@ class RockLocationRepository(
             }
     }
 }
-

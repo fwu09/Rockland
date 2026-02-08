@@ -1,4 +1,4 @@
-package com.example.rockland.firebase
+package com.example.rockland.data.datasource.remote
 
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseUser

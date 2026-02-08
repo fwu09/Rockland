@@ -4,9 +4,9 @@ package com.example.rockland.viewmodel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
-import com.example.rockland.firebase.FirebaseAuthService
-import com.example.rockland.firebase.FirebaseUserService
-import com.example.rockland.firebase.UserData
+import com.example.rockland.data.datasource.remote.FirebaseAuthService
+import com.example.rockland.data.datasource.remote.FirebaseUserService
+import com.example.rockland.data.datasource.remote.UserData
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
