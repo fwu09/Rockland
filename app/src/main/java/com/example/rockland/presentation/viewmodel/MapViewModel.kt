@@ -17,6 +17,7 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import android.content.Context
 import android.net.Uri
@@ -91,6 +92,9 @@ class MapViewModel(
     private val _submissionMessages = MutableSharedFlow<String>(extraBufferCapacity = 2)
     val submissionMessages = _submissionMessages
     private val readInfoLocations = mutableSetOf<String>()
+    private var pendingFocusLocationId: String? = null
+    private val _openInfoCardForLocationId = MutableStateFlow<String?>(null)
+    val openInfoCardForLocationId: StateFlow<String?> = _openInfoCardForLocationId.asStateFlow()
 
     init {
         loadNearbyRocks()
@@ -121,10 +125,36 @@ class MapViewModel(
             try {
                 val rocks = repository.fetchRockLocations()
                 _uiState.value = MapUiState(locations = rocks, isLoading = false)
+                pendingFocusLocationId?.let { id ->
+                    val location = rocks.firstOrNull { it.id == id }
+                    if (location != null) {
+                        pendingFocusLocationId = null
+                        _selectedLocation.value = location
+                        loadCommunityContent(location.id)
+                    }
+                }
             } catch (_: Throwable) {
                 _uiState.value = MapUiState(locations = emptyList(), isLoading = false)
             }
         }
+    }
+
+    fun focusLocation(locationId: String) {
+        if (locationId.isBlank()) return
+        val location = _uiState.value.locations.firstOrNull { it.id == locationId }
+        _openInfoCardForLocationId.value = locationId
+        if (location != null) {
+            pendingFocusLocationId = null
+            _selectedLocation.value = location
+            loadCommunityContent(location.id)
+        } else {
+            pendingFocusLocationId = locationId
+            loadNearbyRocks()
+        }
+    }
+
+    fun consumeOpenInfoCardRequest() {
+        _openInfoCardForLocationId.value = null
     }
 
     // Filters cached rock data so the UI sees only one category.

@@ -65,4 +65,45 @@ class RockRepository {
         val doc = snapshot.documents.firstOrNull() ?: return
         doc.reference.set(rock).await()
     }
+
+    suspend fun hasActiveDependencies(rockId: Int): Boolean {
+        // Prefer new explicit rockId field on missions/achievements; fall back to legacy rockID if present.
+        val missionByRockId = db.collection("missions")
+            .whereEqualTo("rockId", rockId)
+            .limit(1)
+            .get()
+            .await()
+        if (!missionByRockId.isEmpty) return true
+
+        val missionByLegacyId = db.collection("missions")
+            .whereEqualTo("rockID", rockId)
+            .limit(1)
+            .get()
+            .await()
+        if (!missionByLegacyId.isEmpty) return true
+
+        val achievementByRockId = db.collection("achievements")
+            .whereEqualTo("rockId", rockId)
+            .limit(1)
+            .get()
+            .await()
+        if (!achievementByRockId.isEmpty) return true
+
+        val achievementByLegacyId = db.collection("achievements")
+            .whereEqualTo("rockID", rockId)
+            .limit(1)
+            .get()
+            .await()
+        return !achievementByLegacyId.isEmpty
+    }
+
+    suspend fun deleteRock(rockId: Int) {
+        val snapshot = db.collection("rock")
+            .whereEqualTo("rockID", rockId)
+            .limit(1)
+            .get()
+            .await()
+        val doc = snapshot.documents.firstOrNull() ?: return
+        doc.reference.delete().await()
+    }
 }

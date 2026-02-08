@@ -1,6 +1,8 @@
 package com.example.rockland.data.repository
 
 import com.example.rockland.data.model.ContentStatus
+import com.example.rockland.data.model.HelpRequest
+import com.example.rockland.data.model.HelpRequestStatus
 import com.example.rockland.data.model.LocationComment
 import com.example.rockland.data.model.LocationPhoto
 import com.example.rockland.presentation.viewmodel.RockDictionaryRequest
@@ -19,7 +21,10 @@ data class UserNotification(
     val title: String,
     val message: String,
     val createdAt: Long,
-    val isRead: Boolean
+    val isRead: Boolean,
+    val targetTab: String? = null,
+    val targetLocationId: String? = null,
+    val type: String? = null
 )
 
 class ContentReviewRepository(
@@ -29,6 +34,7 @@ class ContentReviewRepository(
     private val usersRef = firestore.collection("users")
     private val rockDictionaryRequestsRef = firestore.collection("rockDictionaryRequests")
     private val rocksRef = firestore.collection("rock")
+    private val helpRequestsRef = firestore.collection("help_requests")
 
     suspend fun fetchPendingComments(): List<LocationComment> {
         val snapshot = firestore.collectionGroup("comments")
@@ -286,6 +292,41 @@ class ContentReviewRepository(
         return (current + 1L).toInt()
     }
 
+    data class InboxSeenState(
+        val pendingCommentCount: Int = 0,
+        val pendingPhotoCount: Int = 0,
+        val pendingRockCount: Int = 0,
+        val pendingHelpCount: Int = 0
+    )
+
+    suspend fun fetchInboxSeenState(userId: String): InboxSeenState {
+        if (userId.isBlank()) return InboxSeenState()
+        val doc = usersRef.document(userId).get().await()
+        return InboxSeenState(
+            pendingCommentCount = (doc.getLong("inboxSeenPendingCommentCount") ?: 0L).toInt(),
+            pendingPhotoCount = (doc.getLong("inboxSeenPendingPhotoCount") ?: 0L).toInt(),
+            pendingRockCount = (doc.getLong("inboxSeenPendingRockCount") ?: 0L).toInt(),
+            pendingHelpCount = (doc.getLong("inboxSeenPendingHelpCount") ?: 0L).toInt()
+        )
+    }
+
+    suspend fun updateInboxSeenState(
+        userId: String,
+        pendingCommentCount: Int? = null,
+        pendingPhotoCount: Int? = null,
+        pendingRockCount: Int? = null,
+        pendingHelpCount: Int? = null
+    ) {
+        if (userId.isBlank()) return
+        val updates = mutableMapOf<String, Any>()
+        pendingCommentCount?.let { updates["inboxSeenPendingCommentCount"] = it }
+        pendingPhotoCount?.let { updates["inboxSeenPendingPhotoCount"] = it }
+        pendingRockCount?.let { updates["inboxSeenPendingRockCount"] = it }
+        pendingHelpCount?.let { updates["inboxSeenPendingHelpCount"] = it }
+        if (updates.isEmpty()) return
+        usersRef.document(userId).set(updates, com.google.firebase.firestore.SetOptions.merge()).await()
+    }
+
     suspend fun fetchUserNotifications(userId: String): List<UserNotification> {
         if (userId.isBlank()) return emptyList()
         val snapshot = usersRef.document(userId)
@@ -304,7 +345,10 @@ class ContentReviewRepository(
                 title = doc.getString("title") ?: "",
                 message = doc.getString("message") ?: "",
                 createdAt = createdAt,
-                isRead = doc.getBoolean("isRead") ?: false
+                isRead = doc.getBoolean("isRead") ?: false,
+                targetTab = doc.getString("targetTab"),
+                targetLocationId = doc.getString("targetLocationId"),
+                type = doc.getString("type")
             )
         }
     }
@@ -312,15 +356,21 @@ class ContentReviewRepository(
     suspend fun addUserNotification(
         userId: String,
         title: String,
-        message: String
+        message: String,
+        targetTab: String? = null,
+        targetLocationId: String? = null,
+        type: String? = null
     ) {
         if (userId.isBlank()) return
-        val payload = mapOf(
+        val payload = mutableMapOf(
             "title" to title,
             "message" to message,
             "createdAt" to System.currentTimeMillis(),
             "isRead" to false
         )
+        if (!targetTab.isNullOrBlank()) payload["targetTab"] = targetTab
+        if (!targetLocationId.isNullOrBlank()) payload["targetLocationId"] = targetLocationId
+        if (!type.isNullOrBlank()) payload["type"] = type
         usersRef.document(userId)
             .collection("notifications")
             .add(payload)
@@ -347,5 +397,93 @@ class ContentReviewRepository(
             batch.delete(doc.reference)
         }
         batch.commit().await()
+    }
+
+    // --------------- Help requests ---------------
+
+    suspend fun submitHelpRequest(
+        userId: String,
+        userDisplayName: String,
+        subject: String,
+        details: String
+    ) {
+        if (userId.isBlank()) return
+        val now = System.currentTimeMillis()
+        val payload = mapOf(
+            "userId" to userId,
+            "userDisplayName" to userDisplayName,
+            "subject" to subject,
+            "details" to details,
+            "status" to HelpRequestStatus.PENDING.name,
+            "createdAt" to now
+        )
+        helpRequestsRef.add(payload).await()
+    }
+
+    suspend fun fetchPendingHelpRequests(): List<HelpRequest> {
+        val snapshot = helpRequestsRef
+            .whereEqualTo("status", HelpRequestStatus.PENDING.name)
+            .orderBy("createdAt", Query.Direction.DESCENDING)
+            .get()
+            .await()
+        return snapshot.documents.map { doc ->
+            helpRequestFromDoc(doc.id, doc)
+        }
+    }
+
+    // Updates the help request with reply and notifies the requesting user.
+
+    suspend fun replyHelpRequest(
+        requestId: String,
+        replyText: String,
+        repliedById: String,
+        requestUserId: String
+    ) {
+        if (requestId.isBlank()) return
+        val now = System.currentTimeMillis()
+        val updates = mapOf(
+            "status" to HelpRequestStatus.REPLIED.name,
+            "repliedAt" to now,
+            "replyText" to replyText,
+            "repliedBy" to repliedById
+        )
+        helpRequestsRef.document(requestId).update(updates).await()
+        if (requestUserId.isNotBlank()) {
+            notifyUserHelpReply(requestUserId, replyText)
+        }
+    }
+
+    private fun helpRequestFromDoc(id: String, doc: com.google.firebase.firestore.DocumentSnapshot): HelpRequest {
+        val createdAt = when (val raw = doc.get("createdAt")) {
+            is Number -> raw.toLong()
+            is Timestamp -> raw.toDate().time
+            else -> 0L
+        }
+        val status = runCatching {
+            HelpRequestStatus.valueOf(doc.getString("status") ?: HelpRequestStatus.PENDING.name)
+        }.getOrDefault(HelpRequestStatus.PENDING)
+        return HelpRequest(
+            id = id,
+            userId = doc.getString("userId") ?: "",
+            userDisplayName = doc.getString("userDisplayName") ?: "",
+            subject = doc.getString("subject") ?: "",
+            details = doc.getString("details") ?: "",
+            status = status,
+            createdAt = createdAt,
+            repliedAt = doc.getLong("repliedAt"),
+            replyText = doc.getString("replyText") ?: "",
+            repliedBy = doc.getString("repliedBy") ?: ""
+        )
+    }
+
+    // Call after replyHelpRequest to notify the user who submitted the request.
+    suspend fun notifyUserHelpReply(userId: String, fullReply: String) {
+        addUserNotification(
+            userId = userId,
+            title = "Reply to your help request",
+            message = fullReply,
+            targetTab = "inbox",
+            type = "help_reply"
+        )
     }
 }

@@ -117,6 +117,7 @@ fun MapScreen(
     val recenterRequests by viewModel.recenterRequests.collectAsState()
     val currentUserId by viewModel.currentUserId.collectAsState()
     val isPosting by viewModel.isPosting.collectAsState()
+    val openInfoCardForLocationId by viewModel.openInfoCardForLocationId.collectAsState()
     val infoCardVisible = remember { mutableStateOf(false) }
     val cameraState = rememberCameraPositionState()
     val showDetailsDialog = remember { mutableStateOf(false) }
@@ -129,6 +130,22 @@ fun MapScreen(
     val editAnnotationImageUri = remember { mutableStateOf<Uri?>(null) }
     val annotationDraft = remember { mutableStateOf("") }
     val annotationImageUri = remember { mutableStateOf<Uri?>(null) }
+    data class DeletePrompt(
+        val contentTypeLabel: String,
+        val confirmLabel: String,
+        val onConfirm: () -> Unit
+    )
+    val deletePrompt = remember { mutableStateOf<DeletePrompt?>(null) }
+
+    LaunchedEffect(openInfoCardForLocationId, selectedLocation?.id) {
+        val targetId = openInfoCardForLocationId ?: return@LaunchedEffect
+        val location = selectedLocation ?: return@LaunchedEffect
+        if (location.id != targetId) return@LaunchedEffect
+        infoCardVisible.value = true
+        cameraState.move(CameraUpdateFactory.newLatLng(location.coordinates))
+        viewModel.consumeOpenInfoCardRequest()
+    }
+
     val addAnnotationPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
     ) { uri ->
@@ -174,7 +191,9 @@ fun MapScreen(
         }
     }
     val userData = userViewModel?.userData?.collectAsState()?.value
-    val isVerifiedExpert = userData?.role?.trim()?.lowercase() == "verified_expert"
+    val normalizedRole = userData?.role?.trim()?.lowercase()
+    val isVerifiedExpert = normalizedRole == "verified_expert"
+    val isAdmin = normalizedRole == "admin" || normalizedRole == "user_admin"
 
     // Location permission state
     val hasLocationPermission = remember { mutableStateOf(false) }
@@ -727,16 +746,57 @@ fun MapScreen(
                                     content = communityContent,
                                     currentUserId = currentUserId,
                                     isVerifiedExpert = isVerifiedExpert,
-                                    onDeleteComment = { id -> viewModel.deleteComment(id) },
+                                    isAdmin = isAdmin,
+                                    onDeleteComment = { id ->
+                                        deletePrompt.value = DeletePrompt(
+                                            contentTypeLabel = "Comment",
+                                            confirmLabel = "Yes"
+                                        ) {
+                                            viewModel.deleteComment(id)
+                                            userViewModel?.showInfo("Comment has successfully been deleted!")
+                                        }
+                                    },
+                                    onAdminDeleteComment = { id ->
+                                        deletePrompt.value = DeletePrompt(
+                                            contentTypeLabel = "Comment",
+                                            confirmLabel = "Yes"
+                                        ) {
+                                            viewModel.deleteComment(id)
+                                            userViewModel?.showInfo("Comment has successfully been deleted!")
+                                        }
+                                    },
                                     onPhotoClick = { photo -> selectedPhotoForDialog.value = photo },
+                                    onAdminDeletePhoto = { photo ->
+                                        deletePrompt.value = DeletePrompt(
+                                            contentTypeLabel = "Image",
+                                            confirmLabel = "Yes"
+                                        ) {
+                                            viewModel.deletePhoto(photo.locationPhotoId)
+                                            userViewModel?.showInfo("Image has successfully been deleted!")
+                                        }
+                                    },
                                     onEditAnnotation = { annotation ->
                                         editAnnotationDraft.value = annotation.note
                                         editAnnotationImageUri.value = null
                                         editingAnnotation.value = annotation
                                     },
                                     onDeleteAnnotation = { annotation ->
-                                        viewModel.deleteAnnotation(annotation.id)
-                                        userViewModel?.showInfo("Annotation deleted.")
+                                        deletePrompt.value = DeletePrompt(
+                                            contentTypeLabel = "Annotation",
+                                            confirmLabel = "Yes"
+                                        ) {
+                                            viewModel.deleteAnnotation(annotation.id)
+                                            userViewModel?.showInfo("Annotation has successfully been deleted!")
+                                        }
+                                    },
+                                    onAdminDeleteAnnotation = { annotation ->
+                                        deletePrompt.value = DeletePrompt(
+                                            contentTypeLabel = "Annotation",
+                                            confirmLabel = "Yes"
+                                        ) {
+                                            viewModel.deleteAnnotation(annotation.id)
+                                            userViewModel?.showInfo("Annotation has successfully been deleted!")
+                                        }
                                     }
                                 )
                             }
@@ -1044,6 +1104,71 @@ fun MapScreen(
                                 }
                             }
                         }
+                        deletePrompt.value?.let { prompt ->
+                            Dialog(onDismissRequest = { deletePrompt.value = null }) {
+                                Card(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 24.dp, vertical = 16.dp),
+                                    colors = CardDefaults.cardColors(containerColor = Color.White),
+                                    shape = RoundedCornerShape(20.dp)
+                                ) {
+                                    Column(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(16.dp),
+                                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                                    ) {
+                                        Text(
+                                            text = "Delete ${prompt.contentTypeLabel}",
+                                            style = MaterialTheme.typography.titleMedium,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = TextDark
+                                        )
+                                        val messageText = when (prompt.contentTypeLabel.lowercase()) {
+                                            "comment" -> "Are you sure you want to delete this comment?"
+                                            "image" -> "Are you sure you want to delete this photo?"
+                                            "annotation" -> "Are you sure you want to delete this annotation?"
+                                            else -> "Are you sure you want to delete this item?"
+                                        }
+                                        Text(
+                                            text = messageText,
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = TextDark.copy(alpha = 0.8f)
+                                        )
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.End
+                                        ) {
+                                            TextButton(onClick = { deletePrompt.value = null }) {
+                                                Text(
+                                                    text = "Cancel",
+                                                    style = MaterialTheme.typography.labelLarge,
+                                                    color = Rock1
+                                                )
+                                            }
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Button(
+                                                onClick = {
+                                                    prompt.onConfirm()
+                                                    deletePrompt.value = null
+                                                },
+                                                shape = RoundedCornerShape(16.dp),
+                                                colors = ButtonDefaults.buttonColors(
+                                                    containerColor = Color(0xFF8B2E2E),
+                                                    contentColor = Color.White
+                                                )
+                                            ) {
+                                                Text(
+                                                    text = prompt.confirmLabel,
+                                                    style = MaterialTheme.typography.labelLarge
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -1136,10 +1261,14 @@ private fun CommunityContentSection(
     content: RockCommunityContent,
     currentUserId: String?,
     isVerifiedExpert: Boolean,
+    isAdmin: Boolean,
     onDeleteComment: (String) -> Unit,
+    onAdminDeleteComment: (String) -> Unit,
     onPhotoClick: (LocationPhoto) -> Unit,
+    onAdminDeletePhoto: (LocationPhoto) -> Unit,
     onEditAnnotation: (RockAnnotation) -> Unit,
-    onDeleteAnnotation: (RockAnnotation) -> Unit
+    onDeleteAnnotation: (RockAnnotation) -> Unit,
+    onAdminDeleteAnnotation: (RockAnnotation) -> Unit
 ) {
 
     Surface(
@@ -1160,13 +1289,17 @@ private fun CommunityContentSection(
                     comments = content.comments,
                     photos = content.photos,
                     currentUserId = currentUserId,
+                    isAdmin = isAdmin,
                     onDelete = onDeleteComment,
+                    onAdminDelete = onAdminDeleteComment,
                     onPhotoClick = onPhotoClick
                 )
 
                 CommunityTab.PHOTOS -> PhotosSection(
                     photos = content.photos,
-                    onPhotoClick = onPhotoClick
+                    isAdmin = isAdmin,
+                    onPhotoClick = onPhotoClick,
+                    onAdminDelete = onAdminDeletePhoto
                 )
 
                 CommunityTab.ANNOTATIONS -> AnnotationsSection(
@@ -1174,8 +1307,10 @@ private fun CommunityContentSection(
                     canEdit = { annotation ->
                         isVerifiedExpert && annotation.expertId == currentUserId
                     },
+                    isAdmin = isAdmin,
                     onEdit = onEditAnnotation,
-                    onDelete = onDeleteAnnotation
+                    onDelete = onDeleteAnnotation,
+                    onAdminDelete = onAdminDeleteAnnotation
                 )
             }
         }
@@ -1187,7 +1322,9 @@ private fun CommentsSection(
     comments: List<LocationComment>,
     photos: List<LocationPhoto>,
     currentUserId: String?,
+    isAdmin: Boolean,
     onDelete: (String) -> Unit,
+    onAdminDelete: (String) -> Unit,
     onPhotoClick: (LocationPhoto) -> Unit
 )
  {
@@ -1208,6 +1345,7 @@ private fun CommentsSection(
         comments.forEach { comment ->
             var menuExpanded by remember(comment.commentId) { mutableStateOf(false) }
             val isOwner = comment.userId.isNotBlank() && comment.userId == currentUserId
+            val canDelete = isOwner || isAdmin
             Surface(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -1249,7 +1387,7 @@ private fun CommentsSection(
                                 style = MaterialTheme.typography.labelSmall
                             )
                         }
-                        if (isOwner) {
+                        if (canDelete) {
                             Box {
                                 IconButton(onClick = { menuExpanded = true }) {
                                     Icon(
@@ -1265,7 +1403,11 @@ private fun CommentsSection(
                                         text = { Text("Delete") },
                                         onClick = {
                                             menuExpanded = false
-                                            onDelete(comment.commentId)
+                                            if (isAdmin && !isOwner) {
+                                                onAdminDelete(comment.commentId)
+                                            } else {
+                                                onDelete(comment.commentId)
+                                            }
                                         }
                                     )
                                 }
@@ -1299,7 +1441,9 @@ private fun CommentsSection(
 @Composable
 private fun PhotosSection(
     photos: List<LocationPhoto>,
-    onPhotoClick: (LocationPhoto) -> Unit
+    isAdmin: Boolean,
+    onPhotoClick: (LocationPhoto) -> Unit,
+    onAdminDelete: (LocationPhoto) -> Unit
 ) {
     if (photos.isEmpty()) {
         Text(
@@ -1315,6 +1459,7 @@ private fun PhotosSection(
         contentPadding = PaddingValues(horizontal = 4.dp)
     ) {
         items(photos) { photo ->
+            var menuExpanded by remember(photo.locationPhotoId) { mutableStateOf(false) }
             Surface(
                 modifier = Modifier
                     .width(160.dp)
@@ -1356,6 +1501,31 @@ private fun PhotosSection(
                         color = TextDark.copy(alpha = 0.6f),
                         style = MaterialTheme.typography.bodySmall
                     )
+                    if (isAdmin) {
+                        Box(
+                            modifier = Modifier.fillMaxWidth(),
+                            contentAlignment = Alignment.CenterEnd
+                        ) {
+                            IconButton(onClick = { menuExpanded = true }) {
+                                Icon(
+                                    imageVector = Icons.Default.MoreVert,
+                                    contentDescription = "Photo actions"
+                                )
+                            }
+                            DropdownMenu(
+                                expanded = menuExpanded,
+                                onDismissRequest = { menuExpanded = false }
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text("Delete") },
+                                    onClick = {
+                                        menuExpanded = false
+                                        onAdminDelete(photo)
+                                    }
+                                )
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -1366,8 +1536,10 @@ private fun PhotosSection(
 private fun AnnotationsSection(
     annotations: List<RockAnnotation>,
     canEdit: (RockAnnotation) -> Boolean,
+    isAdmin: Boolean,
     onEdit: (RockAnnotation) -> Unit,
-    onDelete: (RockAnnotation) -> Unit
+    onDelete: (RockAnnotation) -> Unit,
+    onAdminDelete: (RockAnnotation) -> Unit
 ) {
     if (annotations.isEmpty()) {
         Text(
@@ -1420,7 +1592,8 @@ private fun AnnotationsSection(
                                 )
                             }
                         }
-                        if (canEdit(annotation)) {
+                        val canEditOrAdmin = canEdit(annotation) || isAdmin
+                        if (canEditOrAdmin) {
                             val menuExpanded = remember(annotation.id) { mutableStateOf(false) }
                             Box {
                                 IconButton(onClick = { menuExpanded.value = true }) {
@@ -1433,18 +1606,24 @@ private fun AnnotationsSection(
                                     expanded = menuExpanded.value,
                                     onDismissRequest = { menuExpanded.value = false }
                                 ) {
-                                    DropdownMenuItem(
-                                        text = { Text("Edit") },
-                                        onClick = {
-                                            menuExpanded.value = false
-                                            onEdit(annotation)
-                                        }
-                                    )
+                                    if (canEdit(annotation)) {
+                                        DropdownMenuItem(
+                                            text = { Text("Edit") },
+                                            onClick = {
+                                                menuExpanded.value = false
+                                                onEdit(annotation)
+                                            }
+                                        )
+                                    }
                                     DropdownMenuItem(
                                         text = { Text("Delete") },
                                         onClick = {
                                             menuExpanded.value = false
-                                            onDelete(annotation)
+                                            if (isAdmin && !canEdit(annotation)) {
+                                                onAdminDelete(annotation)
+                                            } else {
+                                                onDelete(annotation)
+                                            }
                                         }
                                     )
                                 }

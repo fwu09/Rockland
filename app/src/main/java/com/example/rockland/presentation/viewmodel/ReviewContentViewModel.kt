@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.example.rockland.data.model.ContentStatus
+import com.example.rockland.data.model.HelpRequest
 import com.example.rockland.data.model.LocationComment
 import com.example.rockland.data.model.LocationPhoto
 import com.example.rockland.data.repository.ContentReviewRepository
@@ -21,7 +22,10 @@ data class InboxNotification(
     val title: String,
     val message: String,
     val date: String,
-    val isRead: Boolean
+    val isRead: Boolean,
+    val targetTab: String? = null,
+    val targetLocationId: String? = null,
+    val type: String? = null
 )
 
 data class RockDictionaryRequest(
@@ -54,11 +58,16 @@ class ReviewContentViewModel(
     private val _pendingRockRequests = MutableStateFlow<List<RockDictionaryRequest>>(emptyList())
     val pendingRockRequests: StateFlow<List<RockDictionaryRequest>> = _pendingRockRequests.asStateFlow()
 
+    private val _pendingHelpRequests = MutableStateFlow<List<HelpRequest>>(emptyList())
+    val pendingHelpRequests: StateFlow<List<HelpRequest>> = _pendingHelpRequests.asStateFlow()
+
     private val _notifications = MutableStateFlow<List<InboxNotification>>(emptyList())
     val notifications: StateFlow<List<InboxNotification>> = _notifications.asStateFlow()
 
     private val _userId = MutableStateFlow<String?>(null)
     private val _role = MutableStateFlow("nature_enthusiast")
+    private val _isLoading = MutableStateFlow(false)
+    val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
 
     fun bindUser(userId: String?, role: String?) {
         val normalizedRole = role?.trim()?.lowercase() ?: "nature_enthusiast"
@@ -72,6 +81,7 @@ class ReviewContentViewModel(
 
     fun refresh() {
         viewModelScope.launch {
+            _isLoading.value = true
             try {
                 val comments = repository.fetchPendingComments()
                 val photos = repository.fetchPendingPhotos()
@@ -83,12 +93,27 @@ class ReviewContentViewModel(
                     emptyList()
                 }
                 _pendingRockRequests.value = rockRequests
-                refreshNotifications(comments, photos, rockRequests)
-            } catch (_: Exception) {
+                val helpRequests = if (_role.value == "admin" || _role.value == "user_admin") {
+                    try {
+                        repository.fetchPendingHelpRequests()
+                    } catch (e: Exception) {
+                        android.util.Log.e("ReviewContentViewModel", "Failed to fetch pending help requests", e)
+                        emptyList()
+                    }
+                } else {
+                    emptyList()
+                }
+                _pendingHelpRequests.value = helpRequests
+                refreshNotifications(comments, photos, rockRequests, helpRequests)
+            } catch (e: Exception) {
+                android.util.Log.e("ReviewContentViewModel", "Failed to refresh", e)
                 _pendingComments.value = emptyList()
                 _pendingPhotos.value = emptyList()
                 _pendingRockRequests.value = emptyList()
+                _pendingHelpRequests.value = emptyList()
                 _notifications.value = emptyList()
+            } finally {
+                _isLoading.value = false
             }
         }
     }
@@ -96,11 +121,13 @@ class ReviewContentViewModel(
     private suspend fun refreshNotifications(
         pendingComments: List<LocationComment>,
         pendingPhotos: List<LocationPhoto>,
-        pendingRockRequests: List<RockDictionaryRequest>
+        pendingRockRequests: List<RockDictionaryRequest>,
+        pendingHelpRequests: List<HelpRequest>
     ) {
         val role = _role.value
         val userId = _userId.value
         if (role == "verified_expert") {
+            val seen = if (!userId.isNullOrBlank()) repository.fetchInboxSeenState(userId) else ContentReviewRepository.InboxSeenState()
             val notifications = buildList {
                 if (pendingComments.isNotEmpty()) {
                     add(
@@ -109,7 +136,7 @@ class ReviewContentViewModel(
                             title = "New Comment Pending",
                             message = "You have ${pendingComments.size} comments waiting for review.",
                             date = "Today",
-                            isRead = false
+                            isRead = pendingComments.size <= seen.pendingCommentCount
                         )
                     )
                 }
@@ -120,7 +147,7 @@ class ReviewContentViewModel(
                             title = "New Image Submission",
                             message = "You have ${pendingPhotos.size} image submissions waiting for review.",
                             date = "Today",
-                            isRead = false
+                            isRead = pendingPhotos.size <= seen.pendingPhotoCount
                         )
                     )
                 }
@@ -131,6 +158,7 @@ class ReviewContentViewModel(
             }
             _notifications.value = notifications
         } else if (role == "admin") {
+            val seen = if (!userId.isNullOrBlank()) repository.fetchInboxSeenState(userId) else ContentReviewRepository.InboxSeenState()
             val notifications = buildList {
                 if (pendingRockRequests.isNotEmpty()) {
                     add(
@@ -139,9 +167,40 @@ class ReviewContentViewModel(
                             title = "Rock Dictionary Review",
                             message = "You have ${pendingRockRequests.size} dictionary updates waiting for review.",
                             date = "Today",
-                            isRead = false
+                            isRead = pendingRockRequests.size <= seen.pendingRockCount
                         )
                     )
+                }
+                if (pendingHelpRequests.isNotEmpty()) {
+                    add(
+                        InboxNotification(
+                            id = "pending_help_requests",
+                            title = "Help Requests",
+                            message = "You have ${pendingHelpRequests.size} help request(s) waiting for reply.",
+                            date = "Today",
+                            isRead = pendingHelpRequests.size <= seen.pendingHelpCount
+                        )
+                    )
+                }
+            }
+            _notifications.value = notifications
+        } else if (role == "user_admin") {
+            val seen = if (!userId.isNullOrBlank()) repository.fetchInboxSeenState(userId) else ContentReviewRepository.InboxSeenState()
+            val notifications = buildList {
+                if (pendingHelpRequests.isNotEmpty()) {
+                    add(
+                        InboxNotification(
+                            id = "pending_help_requests",
+                            title = "Help Requests",
+                            message = "You have ${pendingHelpRequests.size} help request(s) waiting for reply.",
+                            date = "Today",
+                            isRead = pendingHelpRequests.size <= seen.pendingHelpCount
+                        )
+                    )
+                }
+                if (!userId.isNullOrBlank()) {
+                    val raw = repository.fetchUserNotifications(userId)
+                    addAll(raw.map { it.toUi() })
                 }
             }
             _notifications.value = notifications
@@ -155,100 +214,191 @@ class ReviewContentViewModel(
 
     fun approveComment(comment: LocationComment, reviewerId: String?) {
         viewModelScope.launch {
-            repository.updateCommentStatus(comment.locationId, comment.commentId, ContentStatus.APPROVED, reviewerId)
-            if (comment.userId.isNotBlank()) {
-                repository.addUserNotification(
-                    userId = comment.userId,
-                    title = "Comment Approved",
-                    message = "Your comment was approved by a verified expert."
+            try {
+                repository.updateCommentStatus(
+                    comment.locationId,
+                    comment.commentId,
+                    ContentStatus.APPROVED,
+                    reviewerId
                 )
+                if (comment.userId.isNotBlank()) {
+                    repository.addUserNotification(
+                        userId = comment.userId,
+                        title = "Comment Approved",
+                        message = "Your comment was approved by a verified expert.",
+                        targetTab = "map",
+                        targetLocationId = comment.locationId
+                    )
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("ReviewContentViewModel", "Failed to approve comment", e)
+            } finally {
+                refresh()
             }
-            refresh()
         }
     }
 
     fun rejectComment(comment: LocationComment, reviewerId: String?) {
         viewModelScope.launch {
-            repository.updateCommentStatus(comment.locationId, comment.commentId, ContentStatus.REJECTED, reviewerId)
-            if (comment.userId.isNotBlank()) {
-                repository.addUserNotification(
-                    userId = comment.userId,
-                    title = "Comment Rejected",
-                    message = "Your comment was rejected by a verified expert."
+            try {
+                repository.updateCommentStatus(
+                    comment.locationId,
+                    comment.commentId,
+                    ContentStatus.REJECTED,
+                    reviewerId
                 )
+                if (comment.userId.isNotBlank()) {
+                    repository.addUserNotification(
+                        userId = comment.userId,
+                        title = "Comment Rejected",
+                        message = "Your comment was rejected by a verified expert.",
+                        targetTab = "map",
+                        targetLocationId = comment.locationId
+                    )
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("ReviewContentViewModel", "Failed to reject comment", e)
+            } finally {
+                refresh()
             }
-            refresh()
         }
     }
 
     fun approvePhotos(photos: List<LocationPhoto>, reviewerId: String?) {
         viewModelScope.launch {
-            photos.forEach { photo ->
-                repository.updatePhotoStatus(photo.locationId, photo.locationPhotoId, ContentStatus.APPROVED, reviewerId)
-                if (photo.userId.isNotBlank()) {
-                    repository.addUserNotification(
-                        userId = photo.userId,
-                        title = "Image Approved",
-                        message = "Your image submission was approved by a verified expert."
-                    )
+            try {
+                photos.forEach { photo ->
+                    try {
+                        repository.updatePhotoStatus(
+                            photo.locationId,
+                            photo.locationPhotoId,
+                            ContentStatus.APPROVED,
+                            reviewerId
+                        )
+                        if (photo.userId.isNotBlank()) {
+                            repository.addUserNotification(
+                                userId = photo.userId,
+                                title = "Image Approved",
+                                message = "Your image submission was approved by a verified expert.",
+                                targetTab = "map",
+                                targetLocationId = photo.locationId
+                            )
+                        }
+                    } catch (e: Exception) {
+                        android.util.Log.e(
+                            "ReviewContentViewModel",
+                            "Failed to approve photo ${photo.locationPhotoId}",
+                            e
+                        )
+                    }
                 }
+            } catch (e: Exception) {
+                android.util.Log.e("ReviewContentViewModel", "Failed to approve photos batch", e)
+            } finally {
+                refresh()
             }
-            refresh()
         }
     }
 
     fun rejectPhotos(photos: List<LocationPhoto>, reviewerId: String?) {
         viewModelScope.launch {
-            photos.forEach { photo ->
-                repository.updatePhotoStatus(photo.locationId, photo.locationPhotoId, ContentStatus.REJECTED, reviewerId)
-                if (photo.userId.isNotBlank()) {
-                    repository.addUserNotification(
-                        userId = photo.userId,
-                        title = "Image Rejected",
-                        message = "Your image submission was rejected by a verified expert."
-                    )
+            try {
+                photos.forEach { photo ->
+                    try {
+                        repository.updatePhotoStatus(
+                            photo.locationId,
+                            photo.locationPhotoId,
+                            ContentStatus.REJECTED,
+                            reviewerId
+                        )
+                        if (photo.userId.isNotBlank()) {
+                            repository.addUserNotification(
+                                userId = photo.userId,
+                                title = "Image Rejected",
+                                message = "Your image submission was rejected by a verified expert.",
+                                targetTab = "map",
+                                targetLocationId = photo.locationId
+                            )
+                        }
+                    } catch (e: Exception) {
+                        android.util.Log.e(
+                            "ReviewContentViewModel",
+                            "Failed to reject photo ${photo.locationPhotoId}",
+                            e
+                        )
+                    }
                 }
+            } catch (e: Exception) {
+                android.util.Log.e("ReviewContentViewModel", "Failed to reject photos batch", e)
+            } finally {
+                refresh()
             }
-            refresh()
         }
     }
 
     fun approveRockRequest(request: RockDictionaryRequest, reviewerId: String?) {
         viewModelScope.launch {
-            repository.approveRockDictionaryRequest(request, reviewerId)
-            if (request.submittedById.isNotBlank()) {
-                repository.addUserNotification(
-                    userId = request.submittedById,
-                    title = "Rock Dictionary Update Approved",
-                    message = "Your rock dictionary submission was approved by an admin."
-                )
+            try {
+                repository.approveRockDictionaryRequest(request, reviewerId)
+                if (request.submittedById.isNotBlank()) {
+                    repository.addUserNotification(
+                        userId = request.submittedById,
+                        title = "Rock Dictionary Update Approved",
+                        message = "Your rock dictionary submission was approved by an admin.",
+                        targetTab = "dictionary",
+                        type = "rock_dictionary_approved"
+                    )
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("ReviewContentViewModel", "Failed to approve rock request", e)
+            } finally {
+                refresh()
             }
-            refresh()
         }
     }
 
     fun rejectRockRequest(request: RockDictionaryRequest, reviewerId: String?) {
         viewModelScope.launch {
-            repository.rejectRockDictionaryRequest(request, reviewerId)
-            if (request.submittedById.isNotBlank()) {
-                repository.addUserNotification(
-                    userId = request.submittedById,
-                    title = "Rock Dictionary Update Rejected",
-                    message = "Your rock dictionary submission was rejected by an admin."
-                )
+            try {
+                repository.rejectRockDictionaryRequest(request, reviewerId)
+                if (request.submittedById.isNotBlank()) {
+                    repository.addUserNotification(
+                        userId = request.submittedById,
+                        title = "Rock Dictionary Update Rejected",
+                        message = "Your rock dictionary submission was rejected by an admin."
+                    )
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("ReviewContentViewModel", "Failed to reject rock request", e)
+            } finally {
+                refresh()
             }
-            refresh()
         }
     }
 
     fun markNotificationRead(notificationId: String) {
-        val role = _role.value
         val userId = _userId.value
-        if (role == "verified_expert" && notificationId.startsWith("pending_")) return
-        if (role == "admin") return
         if (userId.isNullOrBlank()) return
         viewModelScope.launch {
-            repository.markNotificationRead(userId, notificationId)
+            when (notificationId) {
+                "pending_comments" -> repository.updateInboxSeenState(
+                    userId = userId,
+                    pendingCommentCount = _pendingComments.value.size
+                )
+                "pending_photos" -> repository.updateInboxSeenState(
+                    userId = userId,
+                    pendingPhotoCount = _pendingPhotos.value.size
+                )
+                "pending_rock_dictionary" -> repository.updateInboxSeenState(
+                    userId = userId,
+                    pendingRockCount = _pendingRockRequests.value.size
+                )
+                "pending_help_requests" -> repository.updateInboxSeenState(
+                    userId = userId,
+                    pendingHelpCount = _pendingHelpRequests.value.size
+                )
+                else -> repository.markNotificationRead(userId, notificationId)
+            }
             refresh()
         }
     }
@@ -271,6 +421,17 @@ class ReviewContentViewModel(
             _notifications.value = emptyList()
             return
         }
+        if (role == "user_admin") {
+            if (!userId.isNullOrBlank()) {
+                viewModelScope.launch {
+                    repository.clearNotifications(userId)
+                    refresh()
+                }
+            } else {
+                _notifications.value = emptyList()
+            }
+            return
+        }
         if (userId.isNullOrBlank()) return
         viewModelScope.launch {
             repository.clearNotifications(userId)
@@ -289,8 +450,44 @@ class ReviewContentViewModel(
             title = title,
             message = message,
             date = date,
-            isRead = isRead
+            isRead = isRead,
+            targetTab = targetTab,
+            targetLocationId = targetLocationId,
+            type = type
         )
+    }
+
+    fun submitHelpRequest(userId: String?, userDisplayName: String?, subject: String, details: String) {
+        if (userId.isNullOrBlank()) return
+        viewModelScope.launch {
+            try {
+                repository.submitHelpRequest(
+                    userId = userId,
+                    userDisplayName = userDisplayName.orEmpty(),
+                    subject = subject.ifBlank { "Help Request" },
+                    details = details
+                )
+                // Refresh to update pending help requests for admin
+                refresh()
+            } catch (e: Exception) {
+                android.util.Log.e("ReviewContentViewModel", "Failed to submit help request", e)
+            }
+        }
+    }
+
+    fun replyHelpRequest(request: HelpRequest, replyText: String, repliedById: String?) {
+        if (repliedById.isNullOrBlank()) return
+        viewModelScope.launch {
+            try {
+                repository.replyHelpRequest(
+                    requestId = request.id,
+                    replyText = replyText,
+                    repliedById = repliedById,
+                    requestUserId = request.userId
+                )
+                refresh()
+            } catch (_: Exception) { }
+        }
     }
 
 
