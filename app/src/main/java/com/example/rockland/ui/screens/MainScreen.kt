@@ -6,9 +6,10 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.List
-import androidx.compose.material.icons.filled.AccountCircle
-import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Email
 import androidx.compose.material.icons.filled.Map
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -18,27 +19,23 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.tooling.preview.Preview
-import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.example.rockland.R
 import com.example.rockland.data.datasource.remote.UserData
 import com.example.rockland.viewmodel.MapViewModel
 import com.example.rockland.viewmodel.UserViewModel
 
-// Main screen with bottom navigation
+// Main screen with bottom navigation.
 @Composable
 fun MainScreen(
     onSettingsClick: () -> Unit = {},
     onLogoutClick: () -> Unit = {},
     userViewModel: UserViewModel = viewModel(factory = UserViewModel.Factory())
 ) {
-    var selectedTab by remember { mutableIntStateOf(0) }
+    var selectedTab by rememberSaveable { mutableIntStateOf(0) }
     val userData by userViewModel.userData.collectAsState()
 
     MainScreenContent(
@@ -63,29 +60,40 @@ fun MainScreenContent(
             NavigationBar(
                 modifier = Modifier.fillMaxWidth()
             ) {
+                // 0 - Collection
                 NavigationBarItem(
-                    icon = { Icon(Icons.Default.Home, contentDescription = null) },
-                    label = { Text(stringResource(R.string.home)) },
+                    icon = { Icon(Icons.AutoMirrored.Filled.List, contentDescription = null) },
+                    label = { Text("Collect") },
                     selected = selectedTab == 0,
                     onClick = { onTabSelected(0) }
                 )
+                // 1 - Map
                 NavigationBarItem(
                     icon = { Icon(Icons.Default.Map, contentDescription = null) },
-                    label = { Text(stringResource(R.string.map)) },
+                    label = { Text("Map") },
                     selected = selectedTab == 1,
                     onClick = { onTabSelected(1) }
                 )
+                // 2 - Inbox
                 NavigationBarItem(
-                    icon = { Icon(Icons.AutoMirrored.Filled.List, contentDescription = null) },
-                    label = { Text(stringResource(R.string.collection)) },
+                    icon = { Icon(Icons.Default.Email, contentDescription = null) },
+                    label = { Text("Inbox") },
                     selected = selectedTab == 2,
                     onClick = { onTabSelected(2) }
                 )
+                // 3 - Identifier
                 NavigationBarItem(
-                    icon = { Icon(Icons.Default.AccountCircle, contentDescription = null) },
-                    label = { Text(stringResource(R.string.profile)) },
+                    icon = { Icon(Icons.Default.Search, contentDescription = null) },
+                    label = { Text("Scan") },
                     selected = selectedTab == 3,
                     onClick = { onTabSelected(3) }
+                )
+                // 4 - Achievement
+                NavigationBarItem(
+                    icon = { Icon(Icons.Default.Star, contentDescription = null) },
+                    label = { Text("Awards") },
+                    selected = selectedTab == 4,
+                    onClick = { onTabSelected(4) }
                 )
             }
         }
@@ -96,36 +104,34 @@ fun MainScreenContent(
                 .padding(paddingValues)
         ) {
             when (selectedTab) {
-                0 -> HomeScreen()
+                0 -> CollectionScreen()
                 1 -> MapScreen(
                     viewModel = MapViewModel(),
-                    onInfoDetailsClick = { /* TODO: future info flow */ },
-                    onAddCommentClick = { /* TODO: add comment flow */ }
+                    onInfoDetailsClick = { /* TODO: map info details navigation */ },
+                    onAddCommentClick = { /* TODO: map comment navigation */ }
                 )
-                2 -> PlaceholderScreen("Collection Screen")
-                3 -> {
-                    ProfileScreen(
-                        userData = userData,
-                        onSettingsClick = onSettingsClick,
-                        onLogoutClick = onLogoutClick
-                    )
+
+                2 -> InboxScreen(
+                    userData = userData,
+                    onProfileClick = { onTabSelected(5) }
+                )
+
+                3 -> IdentifierScreen()
+                4 -> AchievementScreen()
+                5 -> ProfileScreen(
+                    userData = userData,
+                    onSettingsClick = onSettingsClick,
+                    onLogoutClick = onLogoutClick,
+                    onBackClick = { onTabSelected(2) }
+                )
+                // Fallback to Collection if selectedTab is invalid
+                else -> {
+                    // Reset to Collection if somehow an invalid tab is selected
+                    onTabSelected(0)
+                    CollectionScreen()
                 }
             }
         }
-    }
-}
-
-// Placeholder screen for screens not yet implemented
-@Composable
-fun PlaceholderScreen(text: String) {
-    Box(
-        modifier = Modifier.fillMaxSize(),
-        contentAlignment = Alignment.Center
-    ) {
-        Text(
-            text = text,
-            fontSize = 24.sp
-        )
     }
 }
 

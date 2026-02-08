@@ -3,9 +3,7 @@ package com.example.rockland.data.datasource.remote
 import com.google.firebase.auth.FirebaseUser
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.SetOptions
-import kotlin.coroutines.resume
-import kotlin.coroutines.resumeWithException
-import kotlin.coroutines.suspendCoroutine
+import kotlinx.coroutines.tasks.await
 
 // User data model for Firestore
 data class UserData(
@@ -30,58 +28,60 @@ class FirebaseUserService {
 
     // Create a new user profile
     suspend fun createUserProfile(user: FirebaseUser, firstName: String, lastName: String) {
-        val userData = UserData(
-            userId = user.uid,
-            firstName = firstName,
-            lastName = lastName,
-            email = user.email ?: "",
-            joinDate = java.text.SimpleDateFormat("MMMM dd, yyyy", java.util.Locale.US)
-                .format(java.util.Date())
-        )
-
-        return suspendCoroutine { continuation ->
-            usersCollection.document(user.uid)
-                .set(userData)
-                .addOnSuccessListener {
-                    continuation.resume(Unit)
-                }
-                .addOnFailureListener { exception ->
-                    continuation.resumeWithException(exception)
-                }
+        try {
+            android.util.Log.d("FirebaseUserService", "Creating user profile for uid: ${user.uid}")
+            val userData = UserData(
+                userId = user.uid,
+                firstName = firstName,
+                lastName = lastName,
+                email = user.email ?: "",
+                joinDate = java.text.SimpleDateFormat("MMMM dd, yyyy", java.util.Locale.US)
+                    .format(java.util.Date())
+            )
+            usersCollection.document(user.uid).set(userData).await()
+            android.util.Log.d(
+                "FirebaseUserService",
+                "User profile created successfully for uid: ${user.uid}"
+            )
+        } catch (e: Exception) {
+            android.util.Log.e(
+                "FirebaseUserService",
+                "Error creating user profile for uid: ${user.uid}",
+                e
+            )
+            throw e
         }
     }
 
     // Get user profile
     suspend fun getUserProfile(userId: String): UserData {
-        return suspendCoroutine { continuation ->
-            usersCollection.document(userId)
-                .get()
-                .addOnSuccessListener { document ->
-                    if (document != null && document.exists()) {
-                        val userData = document.toObject(UserData::class.java)
-                        continuation.resume(userData ?: UserData())
-                    } else {
-                        continuation.resume(UserData())
-                    }
-                }
-                .addOnFailureListener { exception ->
-                    continuation.resumeWithException(exception)
-                }
+        try {
+            android.util.Log.d("FirebaseUserService", "Getting user profile for uid: $userId")
+            val document = usersCollection.document(userId).get().await()
+            return if (document.exists()) {
+                val userData = document.toObject(UserData::class.java) ?: UserData()
+                android.util.Log.d("FirebaseUserService", "User profile found: $userData")
+                userData
+            } else {
+                android.util.Log.w(
+                    "FirebaseUserService",
+                    "User profile not found for uid: $userId, returning empty UserData"
+                )
+                UserData()
+            }
+        } catch (e: Exception) {
+            android.util.Log.e(
+                "FirebaseUserService",
+                "Error getting user profile for uid: $userId",
+                e
+            )
+            throw e
         }
     }
 
-    //Update user profile
+    // Update user profile
     suspend fun updateUserProfile(userId: String, updates: Map<String, Any>) {
-        return suspendCoroutine { continuation ->
-            usersCollection.document(userId)
-                .set(updates, SetOptions.merge())
-                .addOnSuccessListener {
-                    continuation.resume(Unit)
-                }
-                .addOnFailureListener { exception ->
-                    continuation.resumeWithException(exception)
-                }
-        }
+        usersCollection.document(userId).set(updates, SetOptions.merge()).await()
     }
 
     companion object {
