@@ -173,7 +173,6 @@ class FirestoreFriendsRepository(
 
             val id = "${fromUserId}_${toUserId}"
             val existing = friendRequestsRef.document(id).get().await()
-            // If old request was accepted/rejected, delete it first so set() is a create (sender cannot update).
             if (existing.exists()) {
                 val status = existing.getString("status").orEmpty()
                 if (status == "accepted" || status == "rejected") {
