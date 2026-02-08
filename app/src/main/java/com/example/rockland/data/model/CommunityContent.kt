@@ -42,8 +42,11 @@ data class LocationPhoto(
 // Represents an expert annotation for a rock entry.
 data class RockAnnotation(
     val id: String,
+    val expertId: String = "",
     val expertName: String,
-    val note: String
+    val note: String,
+    val timestamp: Long = 0L,
+    val imageUrls: List<String> = emptyList()
 )
 
 // Aggregates all community contributions for the info card display.

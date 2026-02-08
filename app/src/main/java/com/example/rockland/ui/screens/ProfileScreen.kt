@@ -17,6 +17,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.AdminPanelSettings
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.BasicAlertDialog
 import androidx.compose.material3.Button
@@ -58,6 +59,7 @@ import com.example.rockland.util.TimeFormatter
 import com.example.rockland.data.datasource.remote.ApplicationStatus
 
 // Profile screen component
+@Suppress("AssignedValueNeverRead", "UNUSED_EXPRESSION")
 @Composable
 fun ProfileScreen(
     userViewModel: UserViewModel = viewModel(factory = UserViewModel.Factory()),
@@ -71,6 +73,9 @@ fun ProfileScreen(
     val effectiveUserData = vmUserData ?: userData
 
     val roleLabel = formatRoleLabel(effectiveUserData?.role ?: "nature_enthusiast")
+    val isAdmin = (effectiveUserData?.role ?: "")
+        .trim()
+        .lowercase() in listOf("admin", "user_admin")
     val points = effectiveUserData?.points ?: 0
     val missionsCompleted = effectiveUserData?.missionsCompleted ?: 0
     val achievementsCompleted = effectiveUserData?.achievementsCompleted ?: 0
@@ -197,12 +202,25 @@ fun ProfileScreen(
                         .background(Rock1.copy(alpha = 0.2f))
                         .padding(horizontal = 12.dp, vertical = 4.dp)
                 ) {
-                    Text(
-                        text = roleLabel,
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = TextDark
-                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        if (isAdmin) {
+                            Icon(
+                                imageVector = Icons.Default.AdminPanelSettings,
+                                contentDescription = "Admin",
+                                tint = Rock1,
+                                modifier = Modifier.size(14.dp)
+                            )
+                        }
+                        Text(
+                            text = roleLabel,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = TextDark
+                        )
+                    }
                 }
 
                 // Join date
@@ -242,7 +260,7 @@ fun ProfileScreen(
 
                 SummaryStatItem(
                     modifier = Modifier.fillMaxWidth(),
-                    value = points.toString(),
+                    value = if (isAdmin) "All" else points.toString(),
                     label = "Points"
                 )
 
@@ -250,7 +268,7 @@ fun ProfileScreen(
 
                 SummaryStatItem(
                     modifier = Modifier.fillMaxWidth(),
-                    value = achievementsCompleted.toString(),
+                    value = if (isAdmin) "All" else achievementsCompleted.toString(),
                     label = "Achievements"
                 )
 
@@ -258,9 +276,18 @@ fun ProfileScreen(
 
                 SummaryStatItem(
                     modifier = Modifier.fillMaxWidth(),
-                    value = missionsCompleted.toString(),
+                    value = if (isAdmin) "All" else missionsCompleted.toString(),
                     label = "Missions"
                 )
+
+                if (isAdmin) {
+                    Spacer(modifier = Modifier.height(10.dp))
+                    SummaryStatItem(
+                        modifier = Modifier.fillMaxWidth(),
+                        value = "All",
+                        label = "Rocks Collected"
+                    )
+                }
             }
         }
 
@@ -433,6 +460,7 @@ private fun SummaryStatItem(
 private fun formatRoleLabel(role: String): String {
     return when (role.lowercase()) {
         "verified_expert" -> "Verified Expert"
+        "admin" -> "Admin"
         "user_admin" -> "User Admin"
         else -> "Nature Enthusiast"
     }

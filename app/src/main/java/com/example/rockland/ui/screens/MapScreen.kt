@@ -123,6 +123,58 @@ fun MapScreen(
     val sectionScrollState = rememberScrollState()
     val selectedPhotoForDialog = remember { mutableStateOf<LocationPhoto?>(null) }
     val suppressAwardUntil = remember { mutableLongStateOf(0L) }
+    val showAnnotationForm = remember { mutableStateOf(false) }
+    val editingAnnotation = remember { mutableStateOf<RockAnnotation?>(null) }
+    val editAnnotationDraft = remember { mutableStateOf("") }
+    val editAnnotationImageUri = remember { mutableStateOf<Uri?>(null) }
+    val annotationDraft = remember { mutableStateOf("") }
+    val annotationImageUri = remember { mutableStateOf<Uri?>(null) }
+    val addAnnotationPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        val mimeType = context.contentResolver.getType(uri) ?: ""
+        val sizeOk = runCatching {
+            val length = context.contentResolver
+                .openAssetFileDescriptor(uri, "r")
+                ?.use { it.length }
+                ?: -1L
+            length in 1..20L * 1024L * 1024L
+        }.getOrDefault(false)
+        val typeOk = mimeType == "image/jpeg" || mimeType == "image/png"
+        if (!typeOk || !sizeOk) {
+            userViewModel?.showError(
+                "Upload failed. The image must be a JPEG or PNG and under 20MB."
+            )
+            annotationImageUri.value = null
+        } else {
+            annotationImageUri.value = uri
+        }
+    }
+    val editAnnotationPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        val mimeType = context.contentResolver.getType(uri) ?: ""
+        val sizeOk = runCatching {
+            val length = context.contentResolver
+                .openAssetFileDescriptor(uri, "r")
+                ?.use { it.length }
+                ?: -1L
+            length in 1..20L * 1024L * 1024L
+        }.getOrDefault(false)
+        val typeOk = mimeType == "image/jpeg" || mimeType == "image/png"
+        if (!typeOk || !sizeOk) {
+            userViewModel?.showError(
+                "Upload failed. The image must be a JPEG or PNG and under 20MB."
+            )
+            editAnnotationImageUri.value = null
+        } else {
+            editAnnotationImageUri.value = uri
+        }
+    }
+    val userData = userViewModel?.userData?.collectAsState()?.value
+    val isVerifiedExpert = userData?.role?.trim()?.lowercase() == "verified_expert"
 
     // Location permission state
     val hasLocationPermission = remember { mutableStateOf(false) }
@@ -432,26 +484,20 @@ fun MapScreen(
                     colors = CardDefaults.cardColors(containerColor = Color.White),
                     shape = RoundedCornerShape(16.dp)
                 ) {
-                    Column(
-                        modifier = Modifier.padding(horizontal = 22.dp, vertical = 18.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
+                    Row(
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
                         CircularProgressIndicator(
                             color = Rock1,
-                            modifier = Modifier.size(26.dp),
+                            modifier = Modifier.size(18.dp),
                             strokeWidth = 2.dp
                         )
                         Text(
-                            text = "Submitting...",
+                            text = "Uploading... Please wait",
                             color = TextDark,
-                            style = MaterialTheme.typography.bodyMedium,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                        Text(
-                            text = "Please wait while we upload your content",
-                            color = TextDark.copy(alpha = 0.7f),
-                            style = MaterialTheme.typography.labelSmall
+                            style = MaterialTheme.typography.bodySmall
                         )
                     }
                 }
@@ -561,21 +607,59 @@ fun MapScreen(
                             modifier = Modifier.fillMaxWidth(),
                             verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            OutlinedButton(
-                                onClick = {
-                                    selectedLocation?.id?.let { viewModel.recordReadRockInfo(it) }
-                                    onInfoDetailsClick()
-                                    showDetailsDialog.value = true
-                                },
-                                shape = RoundedCornerShape(16.dp),
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                            ) {
-                                Text(
-                                    "View Details",
-                                    style = MaterialTheme.typography.labelMedium,
-                                    fontSize = 14.sp
-                                )
+                            if (isVerifiedExpert) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    OutlinedButton(
+                                        onClick = {
+                                            selectedLocation?.id?.let { viewModel.recordReadRockInfo(it) }
+                                            onInfoDetailsClick()
+                                            showDetailsDialog.value = true
+                                        },
+                                        shape = RoundedCornerShape(16.dp),
+                                        modifier = Modifier.weight(1f)
+                                    ) {
+                                        Text(
+                                            "View Details",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            fontSize = 13.sp
+                                        )
+                                    }
+                                    OutlinedButton(
+                                        onClick = {
+                                            viewModel.hideCommentForm()
+                                            viewModel.hidePhotoForm()
+                                            viewModel.setCommunityTab(CommunityTab.ANNOTATIONS)
+                                            showAnnotationForm.value = true
+                                        },
+                                        shape = RoundedCornerShape(16.dp),
+                                        modifier = Modifier.weight(1f)
+                                    ) {
+                                        Text(
+                                            "Add Annotation",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            fontSize = 13.sp
+                                        )
+                                    }
+                                }
+                            } else {
+                                OutlinedButton(
+                                    onClick = {
+                                        selectedLocation?.id?.let { viewModel.recordReadRockInfo(it) }
+                                        onInfoDetailsClick()
+                                        showDetailsDialog.value = true
+                                    },
+                                    shape = RoundedCornerShape(16.dp),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Text(
+                                        "View Details",
+                                        style = MaterialTheme.typography.labelMedium,
+                                        fontSize = 14.sp
+                                    )
+                                }
                             }
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
@@ -583,6 +667,9 @@ fun MapScreen(
                             ) {
                                 OutlinedButton(
                                     onClick = {
+                                        showAnnotationForm.value = false
+                                        viewModel.hidePhotoForm()
+                                        viewModel.setCommunityTab(CommunityTab.COMMENTS)
                                         viewModel.showCommentForm()
                                         onAddCommentClick()
                                     },
@@ -596,7 +683,12 @@ fun MapScreen(
                                     )
                                 }
                                 OutlinedButton(
-                                    onClick = { viewModel.showPhotoForm() },
+                                    onClick = {
+                                        showAnnotationForm.value = false
+                                        viewModel.hideCommentForm()
+                                        viewModel.setCommunityTab(CommunityTab.PHOTOS)
+                                        viewModel.showPhotoForm()
+                                    },
                                     shape = RoundedCornerShape(16.dp),
                                     modifier = Modifier.weight(1f)
                                 ) {
@@ -634,8 +726,18 @@ fun MapScreen(
                                     tab = activeCommunityTab,
                                     content = communityContent,
                                     currentUserId = currentUserId,
+                                    isVerifiedExpert = isVerifiedExpert,
                                     onDeleteComment = { id -> viewModel.deleteComment(id) },
-                                    onPhotoClick = { photo -> selectedPhotoForDialog.value = photo }
+                                    onPhotoClick = { photo -> selectedPhotoForDialog.value = photo },
+                                    onEditAnnotation = { annotation ->
+                                        editAnnotationDraft.value = annotation.note
+                                        editAnnotationImageUri.value = null
+                                        editingAnnotation.value = annotation
+                                    },
+                                    onDeleteAnnotation = { annotation ->
+                                        viewModel.deleteAnnotation(annotation.id)
+                                        userViewModel?.showInfo("Annotation deleted.")
+                                    }
                                 )
                             }
                         }
@@ -790,6 +892,158 @@ fun MapScreen(
                                 )
                             }
                         }
+                        AnimatedVisibility(visible = showAnnotationForm.value) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .heightIn(max = 260.dp)
+                                    .verticalScroll(commentFormScroll)
+                            ) {
+                                CommunityInputForm(
+                                    title = "Expert Annotation",
+                                    placeholder = "Share your expert insight",
+                                    value = annotationDraft.value,
+                                    onValueChange = { annotationDraft.value = it },
+                                    onSubmit = {
+                                        val trimmed = annotationDraft.value.trim()
+                                        if (trimmed.length !in 10..1000) {
+                                            userViewModel?.showError(
+                                                "Please enter between 10 and 1000 characters."
+                                            )
+                                            return@CommunityInputForm
+                                        }
+                                        viewModel.addAnnotationWithImage(
+                                            context = context,
+                                            note = trimmed,
+                                            imageUri = annotationImageUri.value
+                                        )
+                                        userViewModel?.showInfo("Annotation saved.")
+                                        annotationDraft.value = ""
+                                        annotationImageUri.value = null
+                                        showAnnotationForm.value = false
+                                    },
+                                    onCancel = {
+                                        annotationDraft.value = ""
+                                        annotationImageUri.value = null
+                                        showAnnotationForm.value = false
+                                    },
+                                    submitLabel = "Publish Annotation",
+                                    additionalContent = {
+                                        Column(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                                        ) {
+                                            Button(
+                                                onClick = { addAnnotationPickerLauncher.launch("image/*") },
+                                                colors = ButtonDefaults.buttonColors(containerColor = Rock3),
+                                                modifier = Modifier.fillMaxWidth()
+                                            ) {
+                                                Text("Upload image")
+                                            }
+                                            annotationImageUri.value?.let { uri ->
+                                                AsyncImage(
+                                                    model = uri,
+                                                    contentDescription = null,
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .height(120.dp)
+                                                        .clip(RoundedCornerShape(12.dp))
+                                                )
+                                            }
+                                        }
+                                    }
+                                )
+                            }
+                        }
+                        editingAnnotation.value?.let { annotation ->
+                            Dialog(onDismissRequest = { editingAnnotation.value = null }) {
+                                Card(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(16.dp),
+                                    colors = CardDefaults.cardColors(containerColor = Color.White),
+                                    shape = MaterialTheme.shapes.large
+                                ) {
+                                    Column(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .heightIn(max = 420.dp)
+                                            .verticalScroll(rememberScrollState())
+                                            .padding(16.dp),
+                                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                                    ) {
+                                        Text(
+                                            text = "Edit Annotation",
+                                            style = MaterialTheme.typography.titleMedium,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = TextDark
+                                        )
+                                        TextField(
+                                            value = editAnnotationDraft.value,
+                                            onValueChange = { editAnnotationDraft.value = it },
+                                            placeholder = { Text("Update annotation...") },
+                                            modifier = Modifier.fillMaxWidth()
+                                        )
+                                        Button(
+                                            onClick = { editAnnotationPickerLauncher.launch("image/*") },
+                                            colors = ButtonDefaults.buttonColors(containerColor = Rock3),
+                                            modifier = Modifier.fillMaxWidth()
+                                        ) {
+                                            Text("Update image")
+                                        }
+                                        if (editAnnotationImageUri.value != null) {
+                                            AsyncImage(
+                                                model = editAnnotationImageUri.value,
+                                                contentDescription = null,
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .height(120.dp)
+                                                    .clip(RoundedCornerShape(12.dp))
+                                            )
+                                        } else if (annotation.imageUrls.isNotEmpty()) {
+                                            AsyncImage(
+                                                model = annotation.imageUrls.first(),
+                                                contentDescription = null,
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .height(120.dp)
+                                                    .clip(RoundedCornerShape(12.dp))
+                                            )
+                                        }
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.End
+                                        ) {
+                                            TextButton(onClick = { editingAnnotation.value = null }) {
+                                                Text("Cancel")
+                                            }
+                                            Button(
+                                                onClick = {
+                                                    val trimmed = editAnnotationDraft.value.trim()
+                                                    if (trimmed.length !in 10..1000) {
+                                                        userViewModel?.showError(
+                                                            "Please enter between 10 and 1000 characters."
+                                                        )
+                                                        return@Button
+                                                    }
+                                                    viewModel.updateAnnotationWithImage(
+                                                        context = context,
+                                                        annotationId = annotation.id,
+                                                        note = trimmed,
+                                                        imageUri = editAnnotationImageUri.value,
+                                                        existingImageUrls = annotation.imageUrls
+                                                    )
+                                                    userViewModel?.showInfo("Annotation updated.")
+                                                    editingAnnotation.value = null
+                                                }
+                                            ) {
+                                                Text("Save")
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -881,8 +1135,11 @@ private fun CommunityContentSection(
     tab: CommunityTab,
     content: RockCommunityContent,
     currentUserId: String?,
+    isVerifiedExpert: Boolean,
     onDeleteComment: (String) -> Unit,
-    onPhotoClick: (LocationPhoto) -> Unit
+    onPhotoClick: (LocationPhoto) -> Unit,
+    onEditAnnotation: (RockAnnotation) -> Unit,
+    onDeleteAnnotation: (RockAnnotation) -> Unit
 ) {
 
     Surface(
@@ -912,7 +1169,14 @@ private fun CommunityContentSection(
                     onPhotoClick = onPhotoClick
                 )
 
-                CommunityTab.ANNOTATIONS -> AnnotationsSection(content.annotations)
+                CommunityTab.ANNOTATIONS -> AnnotationsSection(
+                    annotations = content.annotations,
+                    canEdit = { annotation ->
+                        isVerifiedExpert && annotation.expertId == currentUserId
+                    },
+                    onEdit = onEditAnnotation,
+                    onDelete = onDeleteAnnotation
+                )
             }
         }
     }
@@ -1099,7 +1363,12 @@ private fun PhotosSection(
 }
 
 @Composable
-private fun AnnotationsSection(annotations: List<RockAnnotation>) {
+private fun AnnotationsSection(
+    annotations: List<RockAnnotation>,
+    canEdit: (RockAnnotation) -> Boolean,
+    onEdit: (RockAnnotation) -> Unit,
+    onDelete: (RockAnnotation) -> Unit
+) {
     if (annotations.isEmpty()) {
         Text(
             text = "No expert annotations to show here yet.",
@@ -1126,11 +1395,62 @@ private fun AnnotationsSection(annotations: List<RockAnnotation>) {
                         .background(Color.White)
                         .padding(14.dp)
                 ) {
-                    Text(
-                        text = annotation.note,
-                        color = TextDark,
-                        style = MaterialTheme.typography.bodyMedium
-                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.Top
+                    ) {
+                        Column(
+                            modifier = Modifier.weight(1f),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Text(
+                                text = annotation.note,
+                                color = TextDark,
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                            if (annotation.imageUrls.isNotEmpty()) {
+                                AsyncImage(
+                                    model = annotation.imageUrls.first(),
+                                    contentDescription = null,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(120.dp)
+                                        .clip(RoundedCornerShape(12.dp))
+                                )
+                            }
+                        }
+                        if (canEdit(annotation)) {
+                            val menuExpanded = remember(annotation.id) { mutableStateOf(false) }
+                            Box {
+                                IconButton(onClick = { menuExpanded.value = true }) {
+                                    Icon(
+                                        imageVector = Icons.Default.MoreVert,
+                                        contentDescription = "Annotation actions"
+                                    )
+                                }
+                                DropdownMenu(
+                                    expanded = menuExpanded.value,
+                                    onDismissRequest = { menuExpanded.value = false }
+                                ) {
+                                    DropdownMenuItem(
+                                        text = { Text("Edit") },
+                                        onClick = {
+                                            menuExpanded.value = false
+                                            onEdit(annotation)
+                                        }
+                                    )
+                                    DropdownMenuItem(
+                                        text = { Text("Delete") },
+                                        onClick = {
+                                            menuExpanded.value = false
+                                            onDelete(annotation)
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                    }
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
                         text = annotation.expertName,
