@@ -42,8 +42,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import coil.compose.AsyncImage
 import com.example.rockland.R
 import com.example.rockland.data.datasource.remote.UserData
 import com.example.rockland.ui.theme.Rock1
@@ -72,8 +74,8 @@ fun ProfileScreen(
     val vmUserData by userViewModel.userData.collectAsState()
     val effectiveUserData = vmUserData ?: userData
 
-    val roleLabel = formatRoleLabel(effectiveUserData?.role ?: "nature_enthusiast")
-    val isAdmin = (effectiveUserData?.role ?: "")
+    val roleLabel = formatRoleLabel((effectiveUserData?.role).orEmpty().ifBlank { "nature_enthusiast" })
+    val isAdmin = (effectiveUserData?.role).orEmpty()
         .trim()
         .lowercase() in listOf("admin", "user_admin")
     val points = effectiveUserData?.points ?: 0
@@ -82,7 +84,7 @@ fun ProfileScreen(
     val profileName =
         "${effectiveUserData?.firstName.orEmpty()} ${effectiveUserData?.lastName.orEmpty()}".trim()
     val expertApp = effectiveUserData?.expertApplication
-    val isPending = expertApp?.statusEnum == ApplicationStatus.PENDING
+    val isPending = (expertApp?.statusEnum) == ApplicationStatus.PENDING
     val applyButtonText = if (isPending) "View Application" else "Apply"
 
     var applicationFullName by remember(profileName) { mutableStateOf(profileName) }
@@ -159,10 +161,10 @@ fun ProfileScreen(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(16.dp),
+                    .padding(horizontal = 16.dp, vertical = 28.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                // Profile photo placeholder
+                // Profile photo
                 Box(
                     modifier = Modifier
                         .size(100.dp)
@@ -171,15 +173,24 @@ fun ProfileScreen(
                         .shadow(4.dp, CircleShape),
                     contentAlignment = Alignment.Center
                 ) {
-                    val initials =
-                        "${effectiveUserData?.firstName?.firstOrNull() ?: ""}${effectiveUserData?.lastName?.firstOrNull() ?: ""}"
-
-                    Text(
-                        text = initials,
-                        fontSize = 32.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = TextDark
-                    )
+                    val profilePicUrl = effectiveUserData?.profilePictureUrl.orEmpty()
+                    if (profilePicUrl.isNotBlank()) {
+                        AsyncImage(
+                            model = profilePicUrl,
+                            contentDescription = "Profile photo",
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    } else {
+                        val initials =
+                            "${effectiveUserData?.firstName?.firstOrNull() ?: ""}${effectiveUserData?.lastName?.firstOrNull() ?: ""}"
+                        Text(
+                            text = initials.ifBlank { "?" },
+                            fontSize = 32.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = TextDark
+                        )
+                    }
                 }
 
                 Spacer(modifier = Modifier.height(12.dp))
@@ -374,7 +385,7 @@ fun ProfileScreen(
         NotificationDialog(
             title = "Application Sent",
             message = "Your Verified Expert Application has been sent! Please give admins some time to verify your application.",
-            onDismiss = { showSubmittedDialog = false },
+            onDismiss = { showSubmittedDialog = false; },
             isSuccess = true
         )
     }
@@ -386,12 +397,12 @@ fun ProfileScreen(
             yearsOfExp = yearsOfExp,
             portfolioLink = portfolioLink,
             notes = notes,
-            onFullNameChange = { applicationFullName = it },
-            onExpertiseChange = { expertise = it },
-            onYearsChange = { yearsOfExp = it },
-            onPortfolioChange = { portfolioLink = it },
-            onNotesChange = { notes = it },
-            onDismiss = { showExpertDialog = false },
+            onFullNameChange = { applicationFullName = it; Unit },
+            onExpertiseChange = { expertise = it; Unit },
+            onYearsChange = { yearsOfExp = it; Unit },
+            onPortfolioChange = { portfolioLink = it; Unit },
+            onNotesChange = { notes = it; Unit },
+            onDismiss = { showExpertDialog = false; Unit },
             onSubmit = {
                 userViewModel.submitExpertApplication(
                     fullName = applicationFullName,
@@ -400,9 +411,8 @@ fun ProfileScreen(
                     portfolioLink = portfolioLink,
                     notes = notes
                 )
-                showExpertDialog = false
+                showExpertDialog = false; Unit
             }
-
         )
     }
     // if user has already sent an expert application, they will get a popup that shows information that has alr been submitted.
@@ -422,7 +432,7 @@ Submitted details:
 • Portfolio: ${expertApp.portfolioLink}
 • Submitted at: $submittedAtText
         """.trimIndent(),
-            onDismiss = { showPendingDialog = false },
+            onDismiss = { showPendingDialog = false; Unit },
             isSuccess = true
         )
     }

@@ -161,12 +161,12 @@ fun AppNavigation(
         composable(AppRoutes.SETTINGS) {
             val userData by userViewModel.userData.collectAsState()
 
+            val isUploadingPicture by userViewModel.isLoading.collectAsState()
             SettingsScreen(
                 userData = userData,
+                isUploadingPicture = isUploadingPicture,
                 onBackClick = {
-                    // Ensure we navigate back to MAIN screen explicitly
                     if (!navController.popBackStack()) {
-                        // If popBackStack fails (no previous screen), navigate to MAIN
                         navController.navigate(AppRoutes.MAIN) {
                             popUpTo(AppRoutes.MAIN) { inclusive = true }
                         }
@@ -174,13 +174,13 @@ fun AppNavigation(
                 },
                 onSaveClick = { firstName, lastName, _ ->
                     userViewModel.updateUserProfile(firstName, lastName)
-                    // Navigate back to MAIN after saving
                     if (!navController.popBackStack()) {
                         navController.navigate(AppRoutes.MAIN) {
                             popUpTo(AppRoutes.MAIN) { inclusive = true }
                         }
                     }
                 },
+                onUploadProfilePicture = { uri -> userViewModel.uploadProfilePicture(uri) },
                 onLogoutClick = {
                     userViewModel.logout()
                     navController.navigate(AppRoutes.WELCOME) {

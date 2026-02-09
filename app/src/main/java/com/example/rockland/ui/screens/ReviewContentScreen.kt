@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
@@ -28,9 +29,12 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -40,6 +44,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import coil.compose.AsyncImage
+import com.example.rockland.data.repository.UserProfileRepository
 import com.example.rockland.ui.theme.TextDark
 
 enum class ReviewTab {
@@ -231,6 +236,11 @@ private fun CommentReviewCard(
     comment: PendingComment,
     onClick: () -> Unit
 ) {
+    var authorProfileUrl by remember(comment.userId) { mutableStateOf<String?>(null) }
+    val repo = remember { UserProfileRepository() }
+    LaunchedEffect(comment.userId) {
+        authorProfileUrl = runCatching { repo.getUserProfile(comment.userId).profilePictureUrl }.getOrNull()?.takeIf { it.isNotBlank() }
+    }
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -247,33 +257,31 @@ private fun CommentReviewCard(
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                Text(
-                    text = "Comment No. ${comment.number}",
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.SemiBold,
-                    color = TextDark
-                )
+                SmallAvatar(profilePictureUrl = authorProfileUrl, displayName = comment.author)
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "${comment.author} · Comment No. ${comment.number}",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold,
+                        color = TextDark
+                    )
+                    Text(
+                        text = comment.postedAt,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextDark.copy(alpha = 0.7f)
+                    )
+                }
             }
-            Text(
-                text = "Comment Submitted by: ${comment.author}",
-                style = MaterialTheme.typography.bodySmall,
-                color = TextDark.copy(alpha = 0.7f)
-            )
-            Text(
-                text = "Commented on: ${comment.postedAt}",
-                style = MaterialTheme.typography.bodySmall,
-                color = TextDark.copy(alpha = 0.7f)
-            )
             Text(
                 text = comment.location,
                 style = MaterialTheme.typography.bodySmall,
                 color = TextDark.copy(alpha = 0.8f)
             )
             Text(
-                text = "(Comment Preview) ${comment.preview}",
+                text = comment.preview,
                 style = MaterialTheme.typography.bodySmall,
                 color = TextDark.copy(alpha = 0.7f)
             )
@@ -286,6 +294,11 @@ private fun ImageBatchCard(
     batch: PendingImageBatch,
     onClick: () -> Unit
 ) {
+    var authorProfileUrl by remember(batch.userId) { mutableStateOf<String?>(null) }
+    val repo = remember { UserProfileRepository() }
+    LaunchedEffect(batch.userId) {
+        authorProfileUrl = runCatching { repo.getUserProfile(batch.userId).profilePictureUrl }.getOrNull()?.takeIf { it.isNotBlank() }
+    }
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -298,19 +311,27 @@ private fun ImageBatchCard(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp)
+            verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                Text(
-                    text = "Image Submission Batch No. ${batch.batchNumber}",
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.SemiBold,
-                    color = TextDark
-                )
+                SmallAvatar(profilePictureUrl = authorProfileUrl, displayName = batch.author)
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "${batch.author} · Batch No. ${batch.batchNumber}",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold,
+                        color = TextDark
+                    )
+                    Text(
+                        text = batch.submittedAt,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextDark.copy(alpha = 0.7f)
+                    )
+                }
                 Box(
                     modifier = Modifier
                         .clip(CircleShape)
@@ -326,19 +347,37 @@ private fun ImageBatchCard(
                 }
             }
             Text(
-                text = "Review Submitted by: ${batch.author}",
-                style = MaterialTheme.typography.bodySmall,
-                color = TextDark.copy(alpha = 0.7f)
-            )
-            Text(
-                text = "Submitted on: ${batch.submittedAt}",
-                style = MaterialTheme.typography.bodySmall,
-                color = TextDark.copy(alpha = 0.7f)
-            )
-            Text(
                 text = batch.location,
                 style = MaterialTheme.typography.bodySmall,
                 color = TextDark.copy(alpha = 0.8f)
+            )
+        }
+    }
+}
+
+@Composable
+private fun SmallAvatar(profilePictureUrl: String?, displayName: String) {
+    val initials = displayName.trim().split(" ").filter { it.isNotBlank() }.take(2).map { it.first() }.joinToString("").ifBlank { "?" }
+    Box(
+        modifier = Modifier
+            .size(40.dp)
+            .clip(CircleShape)
+            .background(Color(0xFFE8EAF1)),
+        contentAlignment = Alignment.Center
+    ) {
+        if (!profilePictureUrl.isNullOrBlank()) {
+            AsyncImage(
+                model = profilePictureUrl,
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize()
+            )
+        } else {
+            Text(
+                text = initials,
+                style = MaterialTheme.typography.bodySmall,
+                fontWeight = FontWeight.SemiBold,
+                color = TextDark
             )
         }
     }

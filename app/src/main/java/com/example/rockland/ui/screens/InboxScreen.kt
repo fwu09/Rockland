@@ -84,7 +84,6 @@ import com.example.rockland.presentation.viewmodel.ReviewContentViewModel
 import com.example.rockland.presentation.model.UiBanner
 import com.example.rockland.presentation.model.UiBannerType
 import com.example.rockland.ui.components.TopBannerHost
-import com.example.rockland.ui.theme.Rock3
 import com.example.rockland.ui.theme.TextDark
 import coil.compose.AsyncImage
 import java.text.SimpleDateFormat
@@ -94,6 +93,7 @@ import java.util.Locale
 @Composable
 fun InboxScreen(
     userData: UserData?,
+    userViewModel: com.example.rockland.presentation.viewmodel.UserViewModel? = null,
     onProfileClick: () -> Unit,
     onGoToPage: (InboxNotification) -> Unit = {},
     reviewViewModel: ReviewContentViewModel = viewModel(factory = ReviewContentViewModel.Factory()),
@@ -113,7 +113,9 @@ fun InboxScreen(
     val friendsScreenVisible = remember { mutableStateOf(false) }
     val friendsBanner = remember { mutableStateOf<UiBanner?>(null) }
     val friendsViewModel: FriendsViewModel = viewModel(factory = FriendsViewModel.Factory())
-    val chatViewModel: ChatViewModel = viewModel(factory = ChatViewModel.Factory())
+    val chatViewModel: ChatViewModel = viewModel(
+        factory = ChatViewModel.Factory(userDataFlow = userViewModel?.userData)
+    )
     val interactiveNotificationScreenVisible = remember { mutableStateOf(false) }
     val pendingComments by reviewViewModel.pendingComments.collectAsState()
     val pendingPhotos by reviewViewModel.pendingPhotos.collectAsState()
@@ -264,6 +266,8 @@ fun InboxScreen(
     if (chatUiState.activeConversationId != null) {
         ChatScreen(
             otherDisplayName = chatUiState.activeOtherDisplayName,
+            otherProfilePictureUrl = chatUiState.activeOtherProfilePictureUrl,
+            currentUserProfilePictureUrl = userData?.profilePictureUrl.orEmpty(),
             messages = chatUiState.messages,
             currentUserId = chatUiState.currentUserId,
             onBack = chatViewModel::closeConversation,
@@ -375,32 +379,11 @@ fun InboxScreen(
                         .filter { it.isNotBlank() }
                         .joinToString(" ")
                 }
-                val initials = displayName
-                    .trim()
-                    .split(" ")
-                    .filter { it.isNotBlank() }
-                    .take(2)
-                    .map { it.first() }
-                    .joinToString("")
-                    .ifBlank { "UN" }
-
-                Box(
-                    modifier = Modifier
-                        .size(40.dp)
-                        .clip(CircleShape)
-                        .background(Rock3),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = initials,
-                        color = TextDark,
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-
+                AvatarOrInitials(
+                    profilePictureUrl = userData?.profilePictureUrl.orEmpty(),
+                    displayName = displayName
+                )
                 Spacer(modifier = Modifier.width(12.dp))
-
                 Column {
                     Text(
                         text = displayName,
@@ -1951,6 +1934,8 @@ private fun SearchResultRow(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
+            AvatarOrInitials(profilePictureUrl = user.profilePictureUrl, displayName = user.displayName)
+            Spacer(modifier = Modifier.width(12.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(text = user.displayName, style = MaterialTheme.typography.titleSmall, color = TextDark)
                 if (user.email.isNotBlank()) Text(text = user.email, style = MaterialTheme.typography.bodySmall, color = TextDark.copy(alpha = 0.7f))
@@ -2032,7 +2017,7 @@ private fun ContactRow(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            InitialsAvatar(displayName = friend.friendDisplayName)
+            AvatarOrInitials(profilePictureUrl = friend.friendProfilePictureUrl, displayName = friend.friendDisplayName)
             Spacer(modifier = Modifier.width(12.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(text = friend.friendDisplayName, style = MaterialTheme.typography.titleSmall, color = TextDark)
@@ -2040,6 +2025,41 @@ private fun ContactRow(
                     Text(text = friend.friendEmail, style = MaterialTheme.typography.bodySmall, color = TextDark.copy(alpha = 0.7f))
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun AvatarOrInitials(profilePictureUrl: String, displayName: String) {
+    val initials = displayName
+        .trim()
+        .split(" ")
+        .filter { it.isNotBlank() }
+        .take(2)
+        .map { it.first() }
+        .joinToString("")
+        .ifBlank { "UN" }
+    Box(
+        modifier = Modifier
+            .size(40.dp)
+            .clip(CircleShape)
+            .background(Color(0xFFE8EAF1)),
+        contentAlignment = Alignment.Center
+    ) {
+        if (profilePictureUrl.isNotBlank()) {
+            AsyncImage(
+                model = profilePictureUrl,
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize()
+            )
+        } else {
+            Text(
+                text = initials,
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = TextDark
+            )
         }
     }
 }
@@ -2157,7 +2177,10 @@ private fun UserPreviewProfileScreen(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    InitialsAvatar(displayName = profileName)
+                    AvatarOrInitials(
+                        profilePictureUrl = effective.profilePictureUrl.ifBlank { friend.friendProfilePictureUrl },
+                        displayName = profileName
+                    )
                     Text(
                         text = profileName,
                         style = MaterialTheme.typography.titleLarge,
@@ -2248,6 +2271,8 @@ private fun ProgressStatCard(
 @Composable
 private fun ChatScreen(
     otherDisplayName: String,
+    otherProfilePictureUrl: String = "",
+    currentUserProfilePictureUrl: String = "",
     messages: List<ChatMessage>,
     currentUserId: String,
     onBack: () -> Unit,
@@ -2292,9 +2317,13 @@ private fun ChatScreen(
                     items(messages.size) { idx ->
                         val msg = messages[messages.size - 1 - idx]
                         val isOwn = msg.senderId == currentUserId
+                        val senderAvatarUrl = if (isOwn) currentUserProfilePictureUrl else otherProfilePictureUrl
+                        val senderDisplayName = if (isOwn) "" else otherDisplayName
                         ChatMessageRow(
                             message = msg,
                             isOwn = isOwn,
+                            senderAvatarUrl = senderAvatarUrl,
+                            senderDisplayName = senderDisplayName,
                             isSelected = selectedMessageId == msg.id,
                             onLongPress = {
                                 if (isOwn) {
@@ -2337,6 +2366,8 @@ private fun ChatScreen(
 private fun ChatMessageRow(
     message: ChatMessage,
     isOwn: Boolean,
+    senderAvatarUrl: String = "",
+    senderDisplayName: String = "",
     isSelected: Boolean,
     onLongPress: () -> Unit,
     onDelete: () -> Unit
@@ -2352,8 +2383,13 @@ private fun ChatMessageRow(
     }
     Row(
         modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = if (isOwn) Arrangement.End else Arrangement.Start
+        horizontalArrangement = if (isOwn) Arrangement.End else Arrangement.Start,
+        verticalAlignment = Alignment.Bottom
     ) {
+        if (!isOwn) {
+            AvatarOrInitials(profilePictureUrl = senderAvatarUrl, displayName = senderDisplayName)
+            Spacer(modifier = Modifier.width(8.dp))
+        }
         Card(
             modifier = cardModifier,
             colors = CardDefaults.cardColors(containerColor = if (isOwn) Color(0xFFE8EAF1) else Color.White),
@@ -2382,6 +2418,10 @@ private fun ChatMessageRow(
                     }
                 }
             }
+        }
+        if (isOwn) {
+            Spacer(modifier = Modifier.width(8.dp))
+            AvatarOrInitials(profilePictureUrl = senderAvatarUrl, displayName = senderDisplayName)
         }
     }
 }
@@ -2842,7 +2882,7 @@ private fun ConversationRow(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            InitialsAvatar(displayName = conversation.otherDisplayName)
+            AvatarOrInitials(profilePictureUrl = conversation.otherProfilePictureUrl, displayName = conversation.otherDisplayName)
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = conversation.otherDisplayName.ifBlank { "Chat" },

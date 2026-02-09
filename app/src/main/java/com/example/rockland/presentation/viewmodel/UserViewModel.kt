@@ -200,6 +200,24 @@ class UserViewModel(
         }
     }
 
+    // Upload profile picture to Storage, update Firestore profilePictureUrl, refresh user data.
+    fun uploadProfilePicture(uri: android.net.Uri) {
+        val userId = currentUser.value?.uid ?: return
+        viewModelScope.launch {
+            try {
+                _isLoading.value = true
+                val url = userRepo.uploadProfilePicture(userId, uri)
+                userRepo.updateUserProfile(userId, mapOf("profilePictureUrl" to url))
+                loadUserData(userId)
+                showSuccess("Profile picture updated.")
+            } catch (e: Exception) {
+                showError(e.message ?: "Failed to upload profile picture.")
+            } finally {
+                _isLoading.value = false
+            }
+        }
+    }
+
     fun showError(message: String) {
         _banners.tryEmit(UiBanner(text = message, type = UiBannerType.Error))
     }

@@ -134,6 +134,7 @@ fun MainScreenContent(
 
                 2 -> InboxScreen(
                     userData = userData,
+                    userViewModel = userViewModel,
                     onProfileClick = { onTabSelected(5) },
                     onGoToPage = { notification ->
                         val targetTab = notification.targetTab?.trim()?.lowercase()
@@ -172,6 +173,7 @@ fun MainScreenContent(
                     isAdmin = isAdmin
                 )
                 5 -> ProfileScreen(
+                    userViewModel = userViewModel,
                     userData = userData,
                     onSettingsClick = onSettingsClick,
                     onLogoutClick = onLogoutClick,

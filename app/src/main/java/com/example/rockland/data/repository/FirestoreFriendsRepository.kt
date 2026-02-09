@@ -64,7 +64,8 @@ class FirestoreFriendsRepository(
             return UserSummary(
                 userId = uid,
                 displayName = displayName,
-                email = doc.getString("email").orEmpty()
+                email = doc.getString("email").orEmpty(),
+                profilePictureUrl = doc.getString("profilePictureUrl").orEmpty()
             )
         }
         val list = mutableListOf<UserSummary>()
@@ -100,11 +101,13 @@ class FirestoreFriendsRepository(
                             .joinToString(" ")
                             .ifBlank { profile?.getString("email").orEmpty().ifBlank { otherId } }
                         val email = profile?.getString("email").orEmpty()
+                        val profilePicUrl = profile?.getString("profilePictureUrl").orEmpty()
 
                         FriendRelation(
                             friendUserId = otherId,
                             friendDisplayName = displayName,
-                            friendEmail = email
+                            friendEmail = email,
+                            friendProfilePictureUrl = profilePicUrl
                         )
                     }
                     trySend(relations)
@@ -286,6 +289,7 @@ class FirestoreFriendsRepository(
                             .filter { it.isNotBlank() }
                             .joinToString(" ")
                             .ifBlank { profile?.getString("email").orEmpty().ifBlank { otherId } }
+                        val otherProfilePicUrl = profile?.getString("profilePictureUrl").orEmpty()
 
                         val lastMessageAt = d.getLong("lastMessageAtMillis") ?: 0L
                         val lastMessageSenderId = d.getString("lastMessageSenderId").orEmpty()
@@ -309,6 +313,7 @@ class FirestoreFriendsRepository(
                             id = d.id,
                             otherUserId = otherId,
                             otherDisplayName = displayName,
+                            otherProfilePictureUrl = otherProfilePicUrl,
                             lastMessagePreview = d.getString("lastMessageText").orEmpty(),
                             lastMessageAtMillis = lastMessageAt,
                             unreadCount = unread

@@ -1,6 +1,10 @@
 // Screen exposing settings-related controls while staying within the UI layer.
 package com.example.rockland.ui.screens
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -16,6 +20,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -33,6 +38,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -44,19 +50,28 @@ import com.example.rockland.ui.theme.Rock1
 import com.example.rockland.ui.theme.Rock3
 import com.example.rockland.ui.theme.TextDark
 import com.example.rockland.ui.theme.TextLight
+import coil.compose.AsyncImage
 
 // Settings screen component
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(
     userData: UserData? = null,
+    isUploadingPicture: Boolean = false,
     onBackClick: () -> Unit = {},
     onSaveClick: (String, String, String) -> Unit = { _, _, _ -> },
+    onUploadProfilePicture: (Uri) -> Unit = {},
     onLogoutClick: () -> Unit = {}
 ) {
-    var firstName by remember { mutableStateOf(userData?.firstName ?: "") }
-    var lastName by remember { mutableStateOf(userData?.lastName ?: "") }
-    var email by remember { mutableStateOf(userData?.email ?: "") }
+    var firstName by remember(userData?.firstName) { mutableStateOf(userData?.firstName ?: "") }
+    var lastName by remember(userData?.lastName) { mutableStateOf(userData?.lastName ?: "") }
+    var email by remember(userData?.email) { mutableStateOf(userData?.email ?: "") }
+    val profilePictureUrl = userData?.profilePictureUrl.orEmpty()
+    val galleryLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        if (uri != null) onUploadProfilePicture(uri)
+    }
 
     Column(
         modifier = Modifier
@@ -96,9 +111,9 @@ fun SettingsScreen(
                 .padding(bottom = 16.dp)
         ) {
             // Profile section
-            SectionHeader(title = "Profile")
+            SectionHeader()
 
-            // Profile photo
+            // Profile photo: tap to pick from gallery and upload (trim/crop can be added via crop library later)
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -109,15 +124,27 @@ fun SettingsScreen(
                     modifier = Modifier
                         .size(100.dp)
                         .clip(CircleShape)
-                        .background(Rock3),
+                        .background(Rock3)
+                        .clickable(enabled = !isUploadingPicture) { galleryLauncher.launch("image/*") },
                     contentAlignment = Alignment.Center
                 ) {
-                    Text(
-                        text = "${firstName.firstOrNull() ?: ""}${lastName.firstOrNull() ?: ""}",
-                        fontSize = 32.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = TextDark
-                    )
+                    if (isUploadingPicture) {
+                        CircularProgressIndicator(modifier = Modifier.size(36.dp), color = Rock1)
+                    } else if (profilePictureUrl.isNotBlank()) {
+                        AsyncImage(
+                            model = profilePictureUrl,
+                            contentDescription = "Profile photo",
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    } else {
+                        Text(
+                            text = "${firstName.firstOrNull() ?: ""}${lastName.firstOrNull() ?: ""}".ifBlank { "?" },
+                            fontSize = 32.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = TextDark
+                        )
+                    }
                 }
             }
 
@@ -176,9 +203,9 @@ fun SettingsScreen(
     }
 }
 
-// Section header component
+// Section header for Profile block
 @Composable
-private fun SectionHeader(title: String) {
+private fun SectionHeader() {
     Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -186,7 +213,7 @@ private fun SectionHeader(title: String) {
             .padding(horizontal = 16.dp, vertical = 8.dp)
     ) {
         Text(
-            text = title,
+            text = "Profile",
             color = TextLight,
             fontWeight = FontWeight.Bold,
             fontSize = 16.sp
