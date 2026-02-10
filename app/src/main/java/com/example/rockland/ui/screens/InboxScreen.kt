@@ -108,11 +108,6 @@ fun InboxScreen(
     val requestFormVisible = remember { mutableStateOf(false) }
     val reviewScreenVisible = remember { mutableStateOf(false) }
     val rockReviewVisible = remember { mutableStateOf(false) }
-    val internalReviewTabIndex = rememberSaveable { mutableIntStateOf(0) }
-    val currentReviewTabIndex = reviewTabIndex ?: internalReviewTabIndex.intValue
-    val setReviewTabIndex: (Int) -> Unit =
-        onReviewTabChanged ?: { internalReviewTabIndex.intValue = it }
-    val reviewTab = if (currentReviewTabIndex == 1) ReviewTab.IMAGES else ReviewTab.COMMENTS
     val friendsScreenVisible = remember { mutableStateOf(false) }
     val friendsBanner = remember { mutableStateOf<UiBanner?>(null) }
     val friendsViewModel: FriendsViewModel = viewModel(factory = FriendsViewModel.Factory())
@@ -153,75 +148,79 @@ fun InboxScreen(
         faqViewModel.bindUser(userData?.userId)
     }
 
-    val pendingCommentItems = remember(pendingComments) {
-        pendingComments.mapIndexed { index, comment ->
-            PendingComment(
+    val photosByCommentId = remember(pendingPhotos) {
+        pendingPhotos.groupBy { it.commentId }
+    }
+    val pendingReviewItems = remember(pendingComments, pendingPhotos) {
+        val items = mutableListOf<PendingComment>()
+        // comment + attached photos
+        pendingComments.forEachIndexed { index, comment ->
+            val photos = photosByCommentId[comment.commentId].orEmpty()
+            items += PendingComment(
                 id = comment.commentId,
                 number = "${index + 1}",
                 locationId = comment.locationId,
                 userId = comment.userId,
                 author = comment.author,
                 postedAt = formatDate(comment.timestamp),
-                location = "Comment Location",
+                location = comment.locationName.ifBlank { "Unknown Location" },
                 preview = comment.text.take(80),
-                fullText = comment.text
-            )
-        }
-    }
-    val photoGroup = remember(pendingPhotos) {
-        pendingPhotos.groupBy { "${it.locationId}|${it.userId}" }
-    }
-    val pendingImageBatches = remember(pendingPhotos) {
-        photoGroup.entries.mapIndexed { index, entry ->
-            val photos = entry.value
-            val first = photos.first()
-            PendingImageBatch(
-                id = "batch_${index + 1}",
-                batchNumber = "${index + 1}",
-                locationId = first.locationId,
-                userId = first.userId,
-                author = first.author,
-                submittedAt = formatDate(first.timestamp),
-                location = "Image Location",
-                imageCount = photos.size,
+                fullText = comment.text,
                 imageUrls = photos.map { it.imageUrl },
                 photoIds = photos.map { it.locationPhotoId }
             )
         }
+        // photo-only submissions
+        val photoOnly = photosByCommentId[null].orEmpty()
+        val groupedPhotoOnly = photoOnly.groupBy { "${it.locationId}|${it.userId}" }
+        groupedPhotoOnly.entries.forEachIndexed { index, entry ->
+            val photos = entry.value
+            val first = photos.first()
+            items += PendingComment(
+                id = "photo_only_${index + 1}",
+                number = "${pendingComments.size + index + 1}",
+                locationId = first.locationId,
+                userId = first.userId,
+                author = first.author,
+                postedAt = formatDate(first.timestamp),
+                location = first.locationName.ifBlank { "Unknown Location" },
+                preview = "Photo submission",
+                fullText = "Photo submission",
+                imageUrls = photos.map { it.imageUrl },
+                photoIds = photos.map { it.locationPhotoId }
+            )
+        }
+        items
     }
     val commentsById = remember(pendingComments) {
         pendingComments.associateBy { it.commentId }
     }
-    val photosByBatchId = remember(pendingImageBatches, photoGroup) {
-        pendingImageBatches.associate { batch ->
-            val photos = photoGroup["${batch.locationId}|${batch.userId}"].orEmpty()
-            batch.id to photos
-        }
+    val photosById = remember(pendingPhotos) {
+        pendingPhotos.associateBy { it.locationPhotoId }
     }
 
     if (reviewScreenVisible.value) {
         ReviewContentScreen(
-            activeTab = reviewTab,
-            pendingComments = pendingCommentItems,
-            pendingImageBatches = pendingImageBatches,
+            pendingComments = pendingReviewItems,
             onApproveComment = { item ->
-                val comment = commentsById[item.id] ?: return@ReviewContentScreen
-                reviewViewModel.approveComment(comment, userData?.userId)
+                val comment = commentsById[item.id]
+                val photos = item.photoIds.mapNotNull { photosById[it] }
+                if (comment != null) {
+                    reviewViewModel.approveComment(comment, userData?.userId)
+                }
+                if (photos.isNotEmpty()) {
+                    reviewViewModel.approvePhotos(photos, userData?.userId)
+                }
             },
             onRejectComment = { item ->
-                val comment = commentsById[item.id] ?: return@ReviewContentScreen
-                reviewViewModel.rejectComment(comment, userData?.userId)
-            },
-            onApproveImageBatch = { batch ->
-                val photos = photosByBatchId[batch.id].orEmpty()
-                reviewViewModel.approvePhotos(photos, userData?.userId)
-            },
-            onRejectImageBatch = { batch ->
-                val photos = photosByBatchId[batch.id].orEmpty()
-                reviewViewModel.rejectPhotos(photos, userData?.userId)
-            },
-            onTabSelected = { tab ->
-                setReviewTabIndex(if (tab == ReviewTab.IMAGES) 1 else 0)
+                val comment = commentsById[item.id]
+                val photos = item.photoIds.mapNotNull { photosById[it] }
+                if (comment != null) {
+                    reviewViewModel.rejectComment(comment, userData?.userId)
+                }
+                if (photos.isNotEmpty()) {
+                    reviewViewModel.rejectPhotos(photos, userData?.userId)
+                }
             },
             onBack = {
                 reviewScreenVisible.value = false
@@ -319,7 +318,7 @@ fun InboxScreen(
         return
     }
     if (interactiveNotificationScreenVisible.value) {
-        InteractiveNotificationScreen(
+    InteractiveNotificationScreen(
             showContentReviewTab = isVerifiedExpert || isAdmin || isFaqAdmin,
             onBack = { interactiveNotificationScreenVisible.value = false },
             notifications = notifications,
@@ -331,12 +330,7 @@ fun InboxScreen(
                 val targetTab = n.targetTab?.trim()?.lowercase()
                 when {
                     n.type == "help_reply" -> helpReplyPreviewNotification.value = n
-                    n.id == "pending_comments" -> {
-                        setReviewTabIndex(0)
-                        reviewScreenVisible.value = true
-                    }
-                    n.id == "pending_photos" -> {
-                        setReviewTabIndex(1)
+                    n.id == "pending_comments" || n.id == "pending_photos" -> {
                         reviewScreenVisible.value = true
                     }
                     n.id == "pending_rock_dictionary" -> rockReviewVisible.value = true
@@ -351,19 +345,17 @@ fun InboxScreen(
             isVerifiedExpert = isVerifiedExpert,
             isAdmin = isAdmin,
             isFaqAdmin = isFaqAdmin,
-            pendingCommentCount = pendingCommentItems.size,
-            pendingImageCount = pendingImageBatches.sumOf { it.imageCount },
+            pendingCommentCount = pendingReviewItems.size,
+            pendingImageCount = pendingPhotos.size,
             pendingRockCount = pendingRockRequests.size,
             pendingHelpCount = pendingHelpRequests.size,
             pendingApplicationCount = pendingExpertApplications.size,
             onOpenCommentReview = {
                 interactiveNotificationScreenVisible.value = false
-                setReviewTabIndex(0)
                 reviewScreenVisible.value = true
             },
             onOpenImageReview = {
                 interactiveNotificationScreenVisible.value = false
-                setReviewTabIndex(1)
                 reviewScreenVisible.value = true
             },
             onOpenRockReview = {
@@ -458,7 +450,19 @@ fun InboxScreen(
         Spacer(modifier = Modifier.height(24.dp))
 
         // Message area: fixed Interactive notification row + private message list
-        val latestPreview = notifications.firstOrNull()?.let { "${it.title}: ${it.message.take(50)}" }.orEmpty()
+        val latestPreview = notifications.firstOrNull()?.let { n ->
+            if (n.id == "pending_comments") {
+                val commentCount = pendingComments.size
+                val imageCount = pendingPhotos.size
+                if (imageCount > 0) {
+                    "Content review: $commentCount comment(s), $imageCount image(s) pending"
+                } else {
+                    "Content review: $commentCount comment(s) pending"
+                }
+            } else {
+                "${n.title}: ${n.message.take(40)}"
+            }
+        }.orEmpty()
         val unreadNotificationCount = notifications.count { n -> !n.isRead }
         InteractiveNotificationRow(
             latestPreview = latestPreview,
@@ -2961,17 +2965,15 @@ private fun ContentReviewTabContent(
                 )
             }
             item {
+                val subtitle = if (pendingImageCount > 0) {
+                    "$pendingCommentCount Comments, $pendingImageCount Images Pending"
+                } else {
+                    "$pendingCommentCount Comments Pending"
+                }
                 ReviewEntryCard(
-                    title = "Comment Review",
-                    subtitle = "$pendingCommentCount Comments Pending",
+                    title = "Content Review",
+                    subtitle = subtitle,
                     onClick = onOpenCommentReview
-                )
-            }
-            item {
-                ReviewEntryCard(
-                    title = "Image Review",
-                    subtitle = "$pendingImageCount Images Pending",
-                    onClick = onOpenImageReview
                 )
             }
         }

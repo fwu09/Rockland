@@ -232,7 +232,9 @@ class MapViewModel(
     }
 
     fun submitComment(text: String, author: String = "You") {
-        val locationId = _selectedLocation.value?.id ?: return
+        val location = _selectedLocation.value ?: return
+        val locationId = location.id
+        val locationName = location.name
         if (_isPosting.value) return
 
         viewModelScope.launch {
@@ -243,6 +245,7 @@ class MapViewModel(
 
                 repository.addComment(
                     locationId = locationId,
+                    locationName = locationName,
                     userId = uid,
                     author = resolvedAuthor,
                     text = text
@@ -265,7 +268,9 @@ class MapViewModel(
     }
 
     fun submitPhoto(context: Context, caption: String, imageUri: Uri?) {
-        val locationId = _selectedLocation.value?.id ?: return
+        val location = _selectedLocation.value ?: return
+        val locationId = location.id
+        val locationName = location.name
         val uid = currentUser.value?.uid ?: return
         val uri = imageUri ?: return
 
@@ -278,6 +283,7 @@ class MapViewModel(
 
                 repository.addPhoto(
                     locationId = locationId,
+                    locationName = locationName,
                     commentId = null,
                     userId = uid,
                     author = resolvedAuthor,
@@ -448,7 +454,9 @@ class MapViewModel(
     }
 
     fun submitCommentWithPhotos(context: Context, commentText: String, photoUris: List<Uri>) {
-        val locationId = _selectedLocation.value?.id ?: return
+        val location = _selectedLocation.value ?: return
+        val locationId = location.id
+        val locationName = location.name
         val uid = currentUser.value?.uid ?: return
 
         viewModelScope.launch {
@@ -459,6 +467,7 @@ class MapViewModel(
                 // 1) create comment
                 val commentId = repository.addComment(
                     locationId = locationId,
+                    locationName = locationName,
                     userId = uid,
                     author = resolvedAuthor,
                     text = commentText
@@ -475,6 +484,7 @@ class MapViewModel(
                 urls.forEach { url ->
                     repository.addPhoto(
                         locationId = locationId,
+                        locationName = locationName,
                         commentId = commentId,
                         userId = uid,
                         author = resolvedAuthor,

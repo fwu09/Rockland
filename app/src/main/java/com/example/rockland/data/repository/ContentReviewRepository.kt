@@ -17,6 +17,7 @@ import android.net.Uri
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
@@ -102,10 +103,23 @@ class ContentReviewRepository(
             .get()
             .await()
 
+        // cache to avoid duplicate rockLocations lookups
+        val locationNameCache = mutableMapOf<String, String>()
+
         return snapshot.documents.map { doc ->
+            val locationId = doc.getString("locationId") ?: ""
+            val locationNameFromDoc = doc.getString("locationName").orEmpty()
+            val effectiveLocationName =
+                if (locationNameFromDoc.isNotBlank()) {
+                    locationNameFromDoc
+                } else {
+                    getLocationName(locationId, locationNameCache)
+                }
+
             LocationComment(
                 commentId = doc.id,
-                locationId = doc.getString("locationId") ?: "",
+                locationId = locationId,
+                locationName = effectiveLocationName,
                 userId = doc.getString("userId") ?: "",
                 author = doc.getString("author") ?: "Unknown",
                 text = doc.getString("text") ?: "",
@@ -125,10 +139,23 @@ class ContentReviewRepository(
             .get()
             .await()
 
+        // cache to avoid duplicate rockLocations lookups
+        val locationNameCache = mutableMapOf<String, String>()
+
         return snapshot.documents.map { doc ->
+            val locationId = doc.getString("locationId") ?: ""
+            val locationNameFromDoc = doc.getString("locationName").orEmpty()
+            val effectiveLocationName =
+                if (locationNameFromDoc.isNotBlank()) {
+                    locationNameFromDoc
+                } else {
+                    getLocationName(locationId, locationNameCache)
+                }
+
             LocationPhoto(
                 locationPhotoId = doc.id,
-                locationId = doc.getString("locationId") ?: "",
+                locationId = locationId,
+                locationName = effectiveLocationName,
                 commentId = doc.getString("commentId"),
                 userId = doc.getString("userId") ?: "",
                 author = doc.getString("author") ?: "Unknown",
@@ -140,6 +167,100 @@ class ContentReviewRepository(
                 reviewedAt = doc.getLong("reviewedAt")
             )
         }
+    }
+
+    fun observePendingComments(): Flow<List<LocationComment>> = callbackFlow {
+        val registration: ListenerRegistration = firestore.collectionGroup("comments")
+            .whereEqualTo("status", ContentStatus.PENDING.name)
+            .orderBy("timestamp", Query.Direction.DESCENDING)
+            .addSnapshotListener { snapshot, error ->
+                if (error != null || snapshot == null) {
+                    trySend(emptyList())
+                    return@addSnapshotListener
+                }
+                launch {
+                    val cache = mutableMapOf<String, String>()
+                    val list = snapshot.documents.map { doc ->
+                        val locationId = doc.getString("locationId") ?: ""
+                        val locationNameFromDoc = doc.getString("locationName").orEmpty()
+                        val effectiveLocationName =
+                            if (locationNameFromDoc.isNotBlank()) {
+                                locationNameFromDoc
+                            } else {
+                                getLocationName(locationId, cache)
+                            }
+                        LocationComment(
+                            commentId = doc.id,
+                            locationId = locationId,
+                            locationName = effectiveLocationName,
+                            userId = doc.getString("userId") ?: "",
+                            author = doc.getString("author") ?: "Unknown",
+                            text = doc.getString("text") ?: "",
+                            timestamp = doc.getLong("timestamp") ?: 0L,
+                            updatedAt = doc.getLong("updatedAt"),
+                            status = ContentStatus.PENDING,
+                            reviewedBy = doc.getString("reviewedBy"),
+                            reviewedAt = doc.getLong("reviewedAt")
+                        )
+                    }
+                    trySend(list)
+                }
+            }
+        awaitClose { registration.remove() }
+    }
+
+    fun observePendingPhotos(): Flow<List<LocationPhoto>> = callbackFlow {
+        val registration: ListenerRegistration = firestore.collectionGroup("photos")
+            .whereEqualTo("status", ContentStatus.PENDING.name)
+            .orderBy("timestamp", Query.Direction.DESCENDING)
+            .addSnapshotListener { snapshot, error ->
+                if (error != null || snapshot == null) {
+                    trySend(emptyList())
+                    return@addSnapshotListener
+                }
+                launch {
+                    val cache = mutableMapOf<String, String>()
+                    val list = snapshot.documents.map { doc ->
+                        val locationId = doc.getString("locationId") ?: ""
+                        val locationNameFromDoc = doc.getString("locationName").orEmpty()
+                        val effectiveLocationName =
+                            if (locationNameFromDoc.isNotBlank()) {
+                                locationNameFromDoc
+                            } else {
+                                getLocationName(locationId, cache)
+                            }
+                        LocationPhoto(
+                            locationPhotoId = doc.id,
+                            locationId = locationId,
+                            locationName = effectiveLocationName,
+                            commentId = doc.getString("commentId"),
+                            userId = doc.getString("userId") ?: "",
+                            author = doc.getString("author") ?: "Unknown",
+                            caption = doc.getString("caption") ?: "",
+                            imageUrl = doc.getString("imageUrl") ?: "",
+                            timestamp = doc.getLong("timestamp") ?: 0L,
+                            status = ContentStatus.PENDING,
+                            reviewedBy = doc.getString("reviewedBy"),
+                            reviewedAt = doc.getLong("reviewedAt")
+                        )
+                    }
+                    trySend(list)
+                }
+            }
+        awaitClose { registration.remove() }
+    }
+
+    private suspend fun getLocationName(
+        locationId: String,
+        cache: MutableMap<String, String>
+    ): String {
+        if (locationId.isBlank()) return ""
+        cache[locationId]?.let { return it }
+        val name = runCatching {
+            rockLocationsRef.document(locationId).get().await().getString("name")
+        }.getOrNull().orEmpty()
+        cache[locationId] = name
+        return name
     }
 
     suspend fun submitRockDictionaryRequest(
