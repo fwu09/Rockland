@@ -456,9 +456,9 @@ fun MapScreen(
                         modifier = Modifier.padding(12.dp),
                         verticalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
-                        FilterOption("Your Sightings") { viewModel.filterRocks("your-sighting") }
-                        FilterOption("Verified Sightings") { viewModel.filterRocks("verified") }
-                        FilterOption("Public Sightings") { viewModel.filterRocks("public") }
+                        FilterOption("All") { viewModel.filterRocks("all") }
+                        FilterOption("Verified") { viewModel.filterRocks("verified") }
+                        FilterOption("Unverified") { viewModel.filterRocks("unverified") }
                     }
                 }
             }

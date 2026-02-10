@@ -17,6 +17,7 @@ class RockLocationRepository(
 
     // Firestore collection storing nearby rock coordinates.
     private val collectionRef = firestore.collection("rockLocations")
+
     suspend fun fetchRockLocations(): List<RockLocation> {
         val snapshot = collectionRef.get().await()
         return snapshot.documents.mapNotNull { doc ->
@@ -38,6 +39,14 @@ class RockLocationRepository(
                 null
             }
         }
+    }
+
+    // Marks a rock location as verified.
+    suspend fun markLocationVerified(locationId: String) {
+        if (locationId.isBlank()) return
+        collectionRef.document(locationId)
+            .update("category", "verified")
+            .await()
     }
 
     private fun communityDoc(locationId: String) =
