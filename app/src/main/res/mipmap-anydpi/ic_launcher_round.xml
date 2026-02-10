@@ -1,6 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
-<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+<adaptive-icon xmlns:tools="http://schemas.android.com/tools"
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    tools:ignore="MonochromeLauncherIcon">
     <background android:drawable="@color/background_dark" />
-    <foreground android:drawable="@drawable/rockland_logo" />
-    <monochrome android:drawable="@drawable/rockland_logo" />
+    <foreground>
+        <inset
+            android:drawable="@drawable/rockland_logo"
+            android:inset="10%" />
+    </foreground>
 </adaptive-icon>

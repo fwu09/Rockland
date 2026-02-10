@@ -1,18 +1,25 @@
 <?xml version="1.0" encoding="utf-8"?>
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
-    <!-- Background Circle -->
+
+    <!-- Background -->
     <item>
-        <shape android:shape="oval">
-            <solid android:color="@color/rock_3" />
-            <size
-                android:width="120dp"
-                android:height="120dp" />
+        <shape android:shape="rectangle">
+            <solid android:color="@color/background_dark" />
         </shape>
     </item>
 
+    <!-- Centered icon with padding (prevents cropping) -->
     <item android:gravity="center">
-        <bitmap
-            android:src="@drawable/rockland_logo"
-            android:gravity="center" />
+        <inset
+            android:insetLeft="120dp"
+            android:insetTop="120dp"
+            android:insetRight="120dp"
+            android:insetBottom="120dp">
+            <bitmap
+                android:src="@drawable/rockland_logo"
+                android:gravity="center"
+                android:tileMode="disabled" />
+        </inset>
     </item>
+
 </layer-list>

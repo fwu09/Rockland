@@ -1,5 +1,6 @@
 package com.example.rockland.navigation
 
+
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
@@ -22,6 +23,8 @@ import com.example.rockland.ui.screens.RegisterScreen
 import com.example.rockland.ui.screens.SettingsScreen
 import com.example.rockland.ui.screens.WelcomeScreen
 import com.example.rockland.presentation.viewmodel.UserViewModel
+import com.example.rockland.ui.screens.BoxesScreen
+
 
 // Application routes
 object AppRoutes {
@@ -30,6 +33,9 @@ object AppRoutes {
     const val REGISTER = "register"
     const val MAIN = "main"
     const val SETTINGS = "settings"
+
+    const val ROUTE_BOXES = "boxes"
+
 }
 
 // Application navigation component
@@ -41,6 +47,9 @@ fun AppNavigation(
     val isLoggedIn by userViewModel.isLoggedIn.collectAsState()
     val isLoading by userViewModel.isLoading.collectAsState()
     val bannerState = remember { mutableStateOf<UiBanner?>(null) }
+    val userData by userViewModel.userData.collectAsState()
+    val userId = userData?.userId
+
 
     LaunchedEffect(Unit) {
         userViewModel.banners.collect { bannerState.value = it }
@@ -156,6 +165,11 @@ fun AppNavigation(
                 userViewModel = userViewModel
             )
         }
+        composable(AppRoutes.ROUTE_BOXES) {
+            BoxesScreen(userId = userViewModel.userData.value?.userId)
+        }
+
+
 
         // Settings screen
         composable(AppRoutes.SETTINGS) {

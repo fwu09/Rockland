@@ -8,6 +8,7 @@ import com.example.rockland.data.model.TriggerResult
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Query
 import com.google.firebase.firestore.SetOptions
+import com.google.firebase.firestore.FieldValue
 import kotlinx.coroutines.tasks.await
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -96,6 +97,7 @@ class AwardsRepository(
 
     suspend fun applyTrigger(userId: String, trigger: String, incrementBy: Int = 1): TriggerResult {
         if (trigger.isBlank()) return TriggerResult()
+
         val missionsSnapshot = missionsRef.whereEqualTo("trigger", trigger).get().await()
         val achievementsSnapshot = achievementsRef.whereEqualTo("trigger", trigger).get().await()
 
@@ -127,7 +129,9 @@ class AwardsRepository(
         }
 
         val userDoc = usersRef.document(userId).get().await()
-        val existingAchievements = (userDoc.get("achievements") as? List<*>)?.filterIsInstance<String>() ?: emptyList()
+        val existingAchievements =
+            (userDoc.get("achievements") as? List<*>)?.filterIsInstance<String>() ?: emptyList()
+
         val points = (userDoc.getLong("points") ?: 0L).toInt()
         val monthlyPoints = (userDoc.getLong("monthlyPoints") ?: 0L).toInt()
         val missionsCompleted = (userDoc.getLong("missionsCompleted") ?: 0L).toInt()
@@ -140,6 +144,7 @@ class AwardsRepository(
             ?.mapNotNull { (k, v) -> (k as? String)?.let { it to (v as? Long ?: 0L).toInt() } }
             ?.toMap()
             ?: emptyMap()
+
         val newCount = (currentCounts[trigger] ?: 0) + incrementBy
 
         var pointsDelta = 0
@@ -147,6 +152,9 @@ class AwardsRepository(
         var achievementsCompletedDelta = 0
         val updatedAchievements = existingAchievements.toMutableSet()
         val messages = mutableListOf<String>()
+
+        // 🎁 box increments to apply once at the end
+        val boxIncrements = mutableMapOf<String, Long>() // common/rare/special -> count
 
         val batch = firestore.batch()
         val now = System.currentTimeMillis()
@@ -156,6 +164,7 @@ class AwardsRepository(
             val progressDoc = progressRef.get().await()
             val current = (progressDoc.getLong("current") ?: 0L).toInt()
             val completed = progressDoc.getBoolean("completed") ?: false
+
             val newCurrent = current + incrementBy
             val isCompletedNow = mission.target > 0 && newCurrent >= mission.target
 
@@ -163,12 +172,24 @@ class AwardsRepository(
                 "current" to newCurrent,
                 "lastUpdated" to now
             )
+
             if (isCompletedNow && !completed) {
                 updates["completed"] = true
                 updates["completedAt"] = now
+
                 pointsDelta += mission.rewardPoints
                 missionsCompletedDelta += 1
                 messages.add("Mission completed: ${mission.title} (+${mission.rewardPoints} pts)")
+
+                // 🎁 Give a box based on mission type
+                val boxType = when (mission.type.lowercase()) {
+                    "daily" -> "common"
+                    "weekly" -> "rare"
+                    "monthly" -> "special"
+                    else -> "common"
+                }
+                boxIncrements[boxType] = (boxIncrements[boxType] ?: 0L) + 1L
+
             } else if (!completed) {
                 updates["completed"] = false
             }
@@ -197,7 +218,17 @@ class AwardsRepository(
             "triggerCounts" to updatedCounts
         )
 
+        // user base updates
         batch.set(usersRef.document(userId), userUpdates, SetOptions.merge())
+
+        // 🎁 apply box inventory increments (creates fields if missing)
+        boxIncrements.forEach { (boxType, amount) ->
+            batch.update(
+                usersRef.document(userId),
+                "boxInventory.$boxType",
+                FieldValue.increment(amount)
+            )
+        }
 
         val monthId = currentMonthId()
         val entryRef = leaderboardsRef.document(monthId).collection("entries").document(userId)
@@ -206,9 +237,11 @@ class AwardsRepository(
             mapOf("name" to displayName, "points" to (monthlyPoints + pointsDelta)),
             SetOptions.merge()
         )
+
         batch.commit().await()
         return TriggerResult(messages = messages, pointsDelta = pointsDelta)
     }
+
 
     suspend fun upsertMission(definition: MissionDefinition) {
         val data = mutableMapOf<String, Any>(

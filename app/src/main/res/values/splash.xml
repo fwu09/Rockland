@@ -6,12 +6,14 @@
             @color/background_dark
         </item>
         <item name="android:windowSplashScreenAnimatedIcon" tools:targetApi="s">
-            @drawable/splash_logo
+            @mipmap/ic_launcher
         </item>
         <item name="android:windowSplashScreenAnimationDuration" tools:targetApi="s">300</item>
+
         <item name="windowSplashScreenBackground">@color/background_dark</item>
-        <item name="windowSplashScreenAnimatedIcon">@drawable/splash_logo</item>
+        <item name="windowSplashScreenAnimatedIcon">@mipmap/ic_launcher</item>
         <item name="windowSplashScreenAnimationDuration">300</item>
+
         <item name="postSplashScreenTheme">@style/Theme.Rockland</item>
     </style>
 </resources>

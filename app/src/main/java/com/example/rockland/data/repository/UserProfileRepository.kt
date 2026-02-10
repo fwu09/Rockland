@@ -7,7 +7,7 @@ import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.SetOptions
 import kotlinx.coroutines.tasks.await
 
-class UserProfileRepository(
+class  UserProfileRepository(
     private val userService: FirebaseUserService = FirebaseUserService.getInstance(),
     private val firestore: FirebaseFirestore = FirebaseFirestore.getInstance(),
     private val awardsRepository: AwardsRepository = AwardsRepository(),

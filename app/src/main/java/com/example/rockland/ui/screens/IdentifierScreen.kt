@@ -110,7 +110,7 @@ class RockClassifier(private val context: Context) {
     private val imageSize = 224
 
     private val interpreter: Interpreter by lazy {
-        val modelBytes = context.assets.open("rock_finetuned_v1.tflite").readBytes()
+        val modelBytes = context.assets.open("rock_classifier_final.tflite").readBytes()
         val bb = ByteBuffer.allocateDirect(modelBytes.size)
         bb.order(ByteOrder.nativeOrder())
         bb.put(modelBytes)
@@ -119,7 +119,7 @@ class RockClassifier(private val context: Context) {
     }
 
     private val labels: List<String> by lazy {
-        val inputStream = context.assets.open("rock_finetuned_v1_labels.txt")
+        val inputStream = context.assets.open("rock_classifier_labels.txt")
         val reader = BufferedReader(InputStreamReader(inputStream))
         reader.readLines().filter { it.isNotBlank() }
     }
