@@ -11,6 +11,9 @@ import com.example.rockland.data.auth.FirebaseAuthRepository
 import com.example.rockland.data.model.CollectionItem
 import com.example.rockland.data.repository.AwardsRepository
 import com.example.rockland.data.repository.CollectionRepository
+import com.example.rockland.data.repository.Rock
+import com.example.rockland.data.repository.RockRepository
+import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.ktx.Firebase
 import com.google.firebase.storage.ktx.storage
 import kotlinx.coroutines.Dispatchers
@@ -46,6 +49,8 @@ class CollectionViewModel(
 
     private val repository = CollectionRepository()
     private val awardsRepository = AwardsRepository()
+    private val rockRepository = RockRepository()
+    private val firestore = FirebaseFirestore.getInstance()
 
     private val _events = MutableSharedFlow<CollectionEvent>(extraBufferCapacity = 1)
     val events = _events.asSharedFlow()
@@ -57,6 +62,7 @@ class CollectionViewModel(
         authRepository.authState.stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
     private var migratedLegacyImagesForUid: String? = null
+    private var cachedDictionaryRocks: List<Rock>? = null
 
     init {
         viewModelScope.launch {
@@ -97,13 +103,59 @@ class CollectionViewModel(
             _uiState.value = _uiState.value.copy(isLoading = true, errorMessage = null)
             try {
                 val items = repository.fetchCollection(uid)
-                _uiState.value = CollectionUiState(items = items, isLoading = false)
+                val enriched = enrichThumbnailsFromDictionary(items)
+                _uiState.value = CollectionUiState(items = enriched, isLoading = false)
             } catch (e: Exception) {
                 _uiState.value = CollectionUiState(
                     items = emptyList(),
                     isLoading = false,
                     errorMessage = e.message ?: "Failed to load collection."
                 )
+            }
+        }
+    }
+
+    // Lazily loads rock dictionary and caches it in memory.
+    suspend fun getDictionaryRocks(): List<Rock> {
+        val cached = cachedDictionaryRocks
+        if (cached != null && cached.isNotEmpty()) return cached
+        val rocks = rockRepository.getAllRocks().sortedBy { it.rockName }
+        cachedDictionaryRocks = rocks
+        return rocks
+    }
+
+    // Computes unlocked rock IDs for the current user and collection snapshot.
+    suspend fun getUnlockedRockIds(userId: String?, collectionItems: List<CollectionItem>): Set<String> {
+        val uid = userId ?: return emptySet()
+        val doc = firestore.collection("users").document(uid).get().await()
+        val list = (doc.get("unlockedRockIds") as? List<*>)?.filterIsInstance<String>().orEmpty()
+        val fromCollection = collectionItems
+            .mapNotNull { it.rockId.takeIf { id -> id.isNotBlank() } }
+            .toSet()
+        return list.toSet() + fromCollection
+    }
+
+    // Fills missing collection thumbnails from the rock dictionary images.
+    private suspend fun enrichThumbnailsFromDictionary(items: List<CollectionItem>): List<CollectionItem> {
+        if (items.isEmpty()) return items
+        return withContext(Dispatchers.IO) {
+            items.map { item ->
+                if (!item.thumbnailUrl.isNullOrBlank()) return@map item
+
+                val dictRock = runCatching {
+                    val rockIdInt = item.rockId.toIntOrNull()
+                    when {
+                        rockIdInt != null -> rockRepository.getRockById(rockIdInt)
+                        item.rockName.isNotBlank() -> rockRepository.getRockByName(item.rockName)
+                        else -> null
+                    }
+                }.getOrNull()
+
+                if (dictRock != null && dictRock.rockImageUrl.isNotBlank()) {
+                    item.copy(thumbnailUrl = dictRock.rockImageUrl)
+                } else {
+                    item
+                }
             }
         }
     }

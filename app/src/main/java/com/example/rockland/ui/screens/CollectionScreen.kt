@@ -84,7 +84,6 @@ import com.example.rockland.presentation.viewmodel.CollectionEvent
 import com.example.rockland.presentation.viewmodel.UserViewModel
 import com.google.firebase.firestore.FirebaseFirestore
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Locale
@@ -184,6 +183,7 @@ fun CollectionScreen(
 
                 1 -> DictionaryTabContent(
                     userViewModel = userViewModel,
+                    viewModel = viewModel,
                     collectionItems = uiState.items,
                     isVerifiedExpert = isVerifiedExpert
                 )
@@ -399,6 +399,7 @@ private fun CollectionListItem(
 @Composable
 private fun DictionaryTabContent(
     userViewModel: UserViewModel?,
+    viewModel: CollectionViewModel,
     collectionItems: List<CollectionItem>,
     isVerifiedExpert: Boolean
 ) {
@@ -408,7 +409,7 @@ private fun DictionaryTabContent(
     val normalizedRole = userData?.role?.trim()?.lowercase()
     val isAdmin = normalizedRole == "admin" || normalizedRole == "user_admin"
 
-    val rockRepository = remember { RockRepository() }
+    val rockRepositoryOps = remember { RockRepository() }
     val reviewRepository = remember { ContentReviewRepository() }
     val db = remember { FirebaseFirestore.getInstance() }
     val scope = rememberCoroutineScope()
@@ -430,22 +431,12 @@ private fun DictionaryTabContent(
         error.value = null
 
         runCatching {
-            val rocks = rockRepository.getAllRocks().sortedBy { it.rockName }
+            val rocks = viewModel.getDictionaryRocks()
             allRocks.value = rocks
 
             val uid = user?.uid
-            val unlocked = if (uid != null) {
-                val doc = db.collection("users").document(uid).get().await()
-                val list = (doc.get("unlockedRockIds") as? List<*>)?.filterIsInstance<String>().orEmpty()
-                list.toSet()
-            } else {
-                emptySet()
-            }
-
-            // Also treat current collection as unlocked (so brand-new users see unlocks even if
-            // unlockedRockIds hasn't been written yet for some reason).
-            val fromCollection = collectionItems.mapNotNull { it.rockId.takeIf { id -> id.isNotBlank() } }.toSet()
-            unlockedRockIds.value = unlocked + fromCollection
+            val unlocked = viewModel.getUnlockedRockIds(uid, collectionItems)
+            unlockedRockIds.value = unlocked
         }.onFailure { e ->
             if (e is CancellationException) return@LaunchedEffect
             val msg = e.message ?: "Failed to load rock dictionary."
@@ -571,7 +562,7 @@ private fun DictionaryTabContent(
                 onSubmit = { request ->
                     scope.launch {
                         runCatching {
-                            val existing = rockRepository.getRockByName(request.rockName)
+                            val existing = rockRepositoryOps.getRockByName(request.rockName)
                             if (existing != null) {
                                 userViewModel?.showError(
                                     "Existing rock already exists! Unable to add new Rock to Rock Dictionary."
@@ -702,13 +693,13 @@ private fun DictionaryTabContent(
                                 rockToDelete.value = null
                                 scope.launch {
                                     runCatching {
-                                        val hasDeps = rockRepository.hasActiveDependencies(rock.rockID)
+                                        val hasDeps = rockRepositoryOps.hasActiveDependencies(rock.rockID)
                                         if (hasDeps) {
                                             userViewModel?.showError(
                                                 "This rock is used in active mission/achievement. Please remove dependencies first."
                                             )
                                         } else {
-                                            rockRepository.deleteRock(rock.rockID)
+                                            rockRepositoryOps.deleteRock(rock.rockID)
                                             allRocks.value = allRocks.value.filterNot { it.rockID == rock.rockID }
                                             userViewModel?.showInfo("Rock has successfully been deleted!")
                                         }
