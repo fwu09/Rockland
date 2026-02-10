@@ -53,6 +53,10 @@ class MapViewModel(
     private val _uiState = MutableStateFlow(MapUiState())
     val uiState: StateFlow<MapUiState> = _uiState
 
+    // Keeps full list for map filters.
+    private var allLocations: List<RockLocation> = emptyList()
+    private var currentFilter: String = "all"
+
     private val _selectedLocation = MutableStateFlow<RockLocation?>(null)
     val selectedLocation: StateFlow<RockLocation?> = _selectedLocation
 
@@ -124,7 +128,8 @@ class MapViewModel(
         viewModelScope.launch {
             try {
                 val rocks = repository.fetchRockLocations()
-                _uiState.value = MapUiState(locations = rocks, isLoading = false)
+                allLocations = rocks
+                applyCurrentFilter()
                 pendingFocusLocationId?.let { id ->
                     val location = rocks.firstOrNull { it.id == id }
                     if (location != null) {
@@ -159,11 +164,16 @@ class MapViewModel(
 
     // Filters cached rock data so the UI sees only one category.
     fun filterRocks(type: String) {
-        val all = _uiState.value.locations
-        val filtered = if (type == "your-sighting") {
-            all
-        } else {
-            all.filter { it.category == type }
+        currentFilter = type
+        applyCurrentFilter()
+    }
+
+    private fun applyCurrentFilter() {
+        val all = allLocations
+        val filtered = when (currentFilter) {
+            "verified" -> all.filter { it.category.equals("verified", ignoreCase = true) }
+            "unverified" -> all.filter { !it.category.equals("verified", ignoreCase = true) }
+            else -> all
         }
         _uiState.value = MapUiState(locations = filtered, isLoading = false)
     }
@@ -182,31 +192,18 @@ class MapViewModel(
         _selectedLocation.value = null
     }
 
-    // Centers on the nearest rock and signals recenter requests.
+    // For demo, recenter camera to a fixed rock.
     fun moveToUserLocation() {
         viewModelScope.launch {
-            val firstLocation = _uiState.value.locations.firstOrNull()
-            if (firstLocation != null) {
-                val coordinates = LatLng(firstLocation.latitude, firstLocation.longitude)
-                _userLocation.value = coordinates
-                _locationError.value = null
-                selectNearest(coordinates)
-                _recenterRequests.value += 1
-            } else {
-                _locationError.value =
-                    "No rock distribution data found in this area. Be the first to log a discovery!."
-            }
+            focusDemoLocation("rock-2")
         }
     }
 
-    // Picks the rock closest to the provided coordinates.
-    private fun selectNearest(userLocation: LatLng) {
-        val nearest = _uiState.value.locations.minByOrNull {
-            val latDiff = it.latitude - userLocation.latitude
-            val lngDiff = it.longitude - userLocation.longitude
-            latDiff * latDiff + lngDiff * lngDiff
-        }
-        _selectedLocation.value = nearest
+    fun focusDemoLocation(locationId: String) {
+        if (locationId.isBlank()) return
+        val target = allLocations.firstOrNull { it.id == locationId } ?: return
+        _userLocation.value = LatLng(target.latitude, target.longitude)
+        _recenterRequests.value += 1
     }
 
     fun setCommunityTab(tab: CommunityTab) {
@@ -219,11 +216,6 @@ class MapViewModel(
     }
 
     fun hideCommentForm() {
-        _showAddCommentForm.value = false
-    }
-
-    fun showPhotoForm() {
-        _showAddPhotoForm.value = true
         _showAddCommentForm.value = false
     }
 
@@ -402,6 +394,13 @@ class MapViewModel(
                     note = note,
                     imageUrls = urls
                 )
+                // When an expert adds an annotation, promote this location to verified.
+                try {
+                    repository.markLocationVerified(locationId)
+                } catch (_: Throwable) {
+                }
+                // Reload locations so filters and pins reflect updated category.
+                loadNearbyRocks()
                 loadCommunityContent(locationId)
             } catch (_: Throwable) {
             } finally {
