@@ -95,6 +95,8 @@ import com.google.maps.android.compose.MarkerState
 import com.google.maps.android.compose.rememberCameraPositionState
 import androidx.compose.foundation.clickable
 import com.example.rockland.util.TimeFormatter
+import com.example.rockland.data.repository.UserProfileRepository
+import androidx.compose.ui.layout.ContentScale
 import kotlinx.coroutines.launch
 
 private val RockLocation.coordinates: LatLng
@@ -626,59 +628,20 @@ fun MapScreen(
                             modifier = Modifier.fillMaxWidth(),
                             verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            if (isVerifiedExpert) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                ) {
-                                    OutlinedButton(
-                                        onClick = {
-                                            selectedLocation?.id?.let { viewModel.recordReadRockInfo(it) }
-                                            onInfoDetailsClick()
-                                            showDetailsDialog.value = true
-                                        },
-                                        shape = RoundedCornerShape(16.dp),
-                                        modifier = Modifier.weight(1f)
-                                    ) {
-                                        Text(
-                                            "View Details",
-                                            style = MaterialTheme.typography.labelSmall,
-                                            fontSize = 13.sp
-                                        )
-                                    }
-                                    OutlinedButton(
-                                        onClick = {
-                                            viewModel.hideCommentForm()
-                                            viewModel.hidePhotoForm()
-                                            viewModel.setCommunityTab(CommunityTab.ANNOTATIONS)
-                                            showAnnotationForm.value = true
-                                        },
-                                        shape = RoundedCornerShape(16.dp),
-                                        modifier = Modifier.weight(1f)
-                                    ) {
-                                        Text(
-                                            "Add Annotation",
-                                            style = MaterialTheme.typography.labelSmall,
-                                            fontSize = 13.sp
-                                        )
-                                    }
-                                }
-                            } else {
-                                OutlinedButton(
-                                    onClick = {
-                                        selectedLocation?.id?.let { viewModel.recordReadRockInfo(it) }
-                                        onInfoDetailsClick()
-                                        showDetailsDialog.value = true
-                                    },
-                                    shape = RoundedCornerShape(16.dp),
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Text(
-                                        "View Details",
-                                        style = MaterialTheme.typography.labelMedium,
-                                        fontSize = 14.sp
-                                    )
-                                }
+                            OutlinedButton(
+                                onClick = {
+                                    selectedLocation?.id?.let { viewModel.recordReadRockInfo(it) }
+                                    onInfoDetailsClick()
+                                    showDetailsDialog.value = true
+                                },
+                                shape = RoundedCornerShape(16.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text(
+                                    "View Details",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontSize = 13.sp
+                                )
                             }
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
@@ -701,21 +664,23 @@ fun MapScreen(
                                         fontSize = 13.sp
                                     )
                                 }
-                                OutlinedButton(
-                                    onClick = {
-                                        showAnnotationForm.value = false
-                                        viewModel.hideCommentForm()
-                                        viewModel.setCommunityTab(CommunityTab.PHOTOS)
-                                        viewModel.showPhotoForm()
-                                    },
-                                    shape = RoundedCornerShape(16.dp),
-                                    modifier = Modifier.weight(1f)
-                                ) {
-                                    Text(
-                                        "Add Photo",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        fontSize = 13.sp
-                                    )
+                                if (isVerifiedExpert) {
+                                    OutlinedButton(
+                                        onClick = {
+                                            viewModel.hideCommentForm()
+                                            viewModel.hidePhotoForm()
+                                            viewModel.setCommunityTab(CommunityTab.ANNOTATIONS)
+                                            showAnnotationForm.value = true
+                                        },
+                                        shape = RoundedCornerShape(16.dp),
+                                        modifier = Modifier.weight(1f)
+                                    ) {
+                                        Text(
+                                            "Add Annotation",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            fontSize = 13.sp
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -730,8 +695,8 @@ fun MapScreen(
                             verticalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
                             TabSelector(
-                                tabs = CommunityTab.entries.toList(),
-                                activeTab = activeCommunityTab,
+                                tabs = listOf(CommunityTab.COMMENTS, CommunityTab.ANNOTATIONS),
+                                activeTab = if (activeCommunityTab == CommunityTab.PHOTOS) CommunityTab.COMMENTS else activeCommunityTab,
                                 onTabSelected = viewModel::setCommunityTab
                             )
 
@@ -742,7 +707,7 @@ fun MapScreen(
                                     .verticalScroll(sectionScrollState)
                             ) {
                                 CommunityContentSection(
-                                    tab = activeCommunityTab,
+                                    tab = if (activeCommunityTab == CommunityTab.PHOTOS) CommunityTab.COMMENTS else activeCommunityTab,
                                     content = communityContent,
                                     currentUserId = currentUserId,
                                     isVerifiedExpert = isVerifiedExpert,
@@ -1248,7 +1213,10 @@ private fun TabSelector(
                         contentColor = if (isSelected) Rock1 else TextDark
                     )
                 ) {
-                    Text(tab.displayName())
+                    Text(
+                        text = tab.displayName(),
+                        maxLines = 1
+                    )
                 }
             }
         }
@@ -1340,51 +1308,50 @@ private fun CommentsSection(
     Column(
         modifier = Modifier
             .fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
+        verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         comments.forEach { comment ->
             var menuExpanded by remember(comment.commentId) { mutableStateOf(false) }
             val isOwner = comment.userId.isNotBlank() && comment.userId == currentUserId
             val canDelete = isOwner || isAdmin
+            val attached = photos.filter { it.commentId == comment.commentId }
+            var authorProfileUrl by remember(comment.userId) { mutableStateOf<String?>(null) }
+            val profileRepo = remember { UserProfileRepository() }
+            LaunchedEffect(comment.userId) {
+                if (comment.userId.isNotBlank()) {
+                    authorProfileUrl = runCatching { profileRepo.getUserProfile(comment.userId).profilePictureUrl }
+                        .getOrNull()?.takeIf { it.isNotBlank() }
+                }
+            }
             Surface(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(14.dp)),
                 tonalElevation = 1.dp,
-                shadowElevation = 2.dp
+                shadowElevation = 2.dp,
+                color = Color.White
             ) {
                 Column(
                     modifier = Modifier
-                        .background(Color.White)
+                        .fillMaxWidth()
                         .padding(14.dp)
                 ) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.Top
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Column(
-                            modifier = Modifier.weight(1f)
+                        Row(
+                            modifier = Modifier.weight(1f),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
+                            CommentAvatar(profilePictureUrl = authorProfileUrl, displayName = comment.author)
                             Text(
-                                text = comment.text,
+                                text = comment.author,
                                 color = TextDark,
-                                style = MaterialTheme.typography.bodyMedium
-                            )
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text(
-                                text = "- ${comment.author}",
-                                color = TextDark.copy(alpha = 0.6f),
-                                style = MaterialTheme.typography.bodySmall
-                            )
-                            val timeText = comment.updatedAt?.let {
-                                "Edited ${TimeFormatter.formatLocal(it)}"
-                            } ?: TimeFormatter.formatLocal(comment.timestamp)
-
-                            Text(
-                                text = timeText,
-                                color = TextDark.copy(alpha = 0.45f),
-                                style = MaterialTheme.typography.labelSmall
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.SemiBold
                             )
                         }
                         if (canDelete) {
@@ -1392,7 +1359,8 @@ private fun CommentsSection(
                                 IconButton(onClick = { menuExpanded = true }) {
                                     Icon(
                                         imageVector = Icons.Default.MoreVert,
-                                        contentDescription = "More"
+                                        contentDescription = "More",
+                                        tint = TextDark
                                     )
                                 }
                                 DropdownMenu(
@@ -1414,27 +1382,70 @@ private fun CommentsSection(
                             }
                         }
                     }
-                }
-            }
-            val attached = photos.filter { it.commentId == comment.commentId }
-
-            if (attached.isNotEmpty()) {
-                Spacer(modifier = Modifier.height(8.dp))
-                LazyRow(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    items(attached) { photo ->
-                        AsyncImage(
-                            model = photo.imageUrl,
-                            contentDescription = null,
-                            modifier = Modifier
-                                .size(90.dp)
-                                .clip(RoundedCornerShape(10.dp))
-                                .clickable { onPhotoClick(photo) }
-                        )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = comment.text,
+                        color = TextDark,
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    if (attached.isNotEmpty()) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        LazyRow(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            items(attached) { photo ->
+                                AsyncImage(
+                                    model = photo.imageUrl,
+                                    contentDescription = null,
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier
+                                        .size(90.dp)
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .clickable { onPhotoClick(photo) }
+                                )
+                            }
+                        }
                     }
+                    Spacer(modifier = Modifier.height(6.dp))
+                    val timeText = comment.updatedAt?.let {
+                        "Edited ${TimeFormatter.formatLocal(it)}"
+                    } ?: TimeFormatter.formatLocal(comment.timestamp)
+                    Text(
+                        text = timeText,
+                        color = TextDark.copy(alpha = 0.5f),
+                        style = MaterialTheme.typography.labelSmall
+                    )
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun CommentAvatar(profilePictureUrl: String?, displayName: String) {
+    val initials = displayName.trim().split(" ").filter { it.isNotBlank() }.take(2).map { it.first() }.joinToString("").ifBlank { "?" }
+    Box(
+        modifier = Modifier
+            .size(36.dp)
+            .clip(CircleShape)
+            .background(Color(0xFFE8EAF1)),
+        contentAlignment = Alignment.Center
+    ) {
+        if (!profilePictureUrl.isNullOrBlank()) {
+            AsyncImage(
+                model = profilePictureUrl,
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize()
+            )
+        } else {
+            Text(
+                text = initials,
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = TextDark
+            )
         }
     }
 }
@@ -1549,68 +1560,71 @@ private fun AnnotationsSection(
         return
     }
 
+    val profileRepo = remember { UserProfileRepository() }
     Column(
         modifier = Modifier
             .fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
+        verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         annotations.forEach { annotation ->
+            var expertProfileUrl by remember(annotation.expertId) { mutableStateOf<String?>(null) }
+            LaunchedEffect(annotation.expertId) {
+                if (annotation.expertId.isNotBlank()) {
+                    expertProfileUrl = runCatching { profileRepo.getUserProfile(annotation.expertId).profilePictureUrl }
+                        .getOrNull()?.takeIf { it.isNotBlank() }
+                }
+            }
+            val canEditOrAdmin = canEdit(annotation) || isAdmin
+            var menuExpanded by remember(annotation.id) { mutableStateOf(false) }
             Surface(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(14.dp)),
                 tonalElevation = 1.dp,
-                shadowElevation = 2.dp
+                shadowElevation = 2.dp,
+                color = Color.White
             ) {
                 Column(
                     modifier = Modifier
-                        .background(Color.White)
+                        .fillMaxWidth()
                         .padding(14.dp)
                 ) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.Top
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Column(
+                        Row(
                             modifier = Modifier.weight(1f),
-                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
+                            CommentAvatar(profilePictureUrl = expertProfileUrl, displayName = annotation.expertName)
                             Text(
-                                text = annotation.note,
+                                text = annotation.expertName,
                                 color = TextDark,
-                                style = MaterialTheme.typography.bodyMedium
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.SemiBold
                             )
-                            if (annotation.imageUrls.isNotEmpty()) {
-                                AsyncImage(
-                                    model = annotation.imageUrls.first(),
-                                    contentDescription = null,
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .height(120.dp)
-                                        .clip(RoundedCornerShape(12.dp))
-                                )
-                            }
                         }
-                        val canEditOrAdmin = canEdit(annotation) || isAdmin
                         if (canEditOrAdmin) {
-                            val menuExpanded = remember(annotation.id) { mutableStateOf(false) }
                             Box {
-                                IconButton(onClick = { menuExpanded.value = true }) {
+                                IconButton(onClick = { menuExpanded = true }) {
                                     Icon(
                                         imageVector = Icons.Default.MoreVert,
-                                        contentDescription = "Annotation actions"
+                                        contentDescription = "Annotation actions",
+                                        tint = TextDark
                                     )
                                 }
                                 DropdownMenu(
-                                    expanded = menuExpanded.value,
-                                    onDismissRequest = { menuExpanded.value = false }
+                                    expanded = menuExpanded,
+                                    onDismissRequest = { menuExpanded = false }
                                 ) {
                                     if (canEdit(annotation)) {
                                         DropdownMenuItem(
                                             text = { Text("Edit") },
                                             onClick = {
-                                                menuExpanded.value = false
+                                                menuExpanded = false
                                                 onEdit(annotation)
                                             }
                                         )
@@ -1618,7 +1632,7 @@ private fun AnnotationsSection(
                                     DropdownMenuItem(
                                         text = { Text("Delete") },
                                         onClick = {
-                                            menuExpanded.value = false
+                                            menuExpanded = false
                                             if (isAdmin && !canEdit(annotation)) {
                                                 onAdminDelete(annotation)
                                             } else {
@@ -1630,11 +1644,35 @@ private fun AnnotationsSection(
                             }
                         }
                     }
-                    Spacer(modifier = Modifier.height(4.dp))
+                    Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        text = annotation.expertName,
-                        color = TextDark.copy(alpha = 0.6f),
-                        style = MaterialTheme.typography.bodySmall
+                        text = annotation.note,
+                        color = TextDark,
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    if (annotation.imageUrls.isNotEmpty()) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        LazyRow(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            items(annotation.imageUrls.size) { idx ->
+                                AsyncImage(
+                                    model = annotation.imageUrls[idx],
+                                    contentDescription = null,
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier
+                                        .size(height = 120.dp, width = 160.dp)
+                                        .clip(RoundedCornerShape(12.dp))
+                                )
+                            }
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        text = TimeFormatter.formatLocal(annotation.timestamp),
+                        color = TextDark.copy(alpha = 0.5f),
+                        style = MaterialTheme.typography.labelSmall
                     )
                 }
             }
@@ -1754,6 +1792,6 @@ private fun CommunityTab.displayName(): String {
     return when (this) {
         CommunityTab.COMMENTS -> "Comments"
         CommunityTab.PHOTOS -> "Photos"
-        CommunityTab.ANNOTATIONS -> "Expert Annotations"
+        CommunityTab.ANNOTATIONS -> "Expert"
     }
 }
