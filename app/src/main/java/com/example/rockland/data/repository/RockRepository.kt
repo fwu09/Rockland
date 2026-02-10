@@ -2,6 +2,10 @@ package com.example.rockland.data.repository
 
 import com.google.firebase.firestore.FirebaseFirestore
 import kotlinx.coroutines.tasks.await
+import com.google.firebase.storage.FirebaseStorage
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
+
 
 // Simple repository that reads rock metadata from Firestore.
 data class Rock(
@@ -10,14 +14,43 @@ data class Rock(
     val rockRarity: String = "",
     val rockLocation: String = "",
     val rockDesc: String = "",
+
+    // from Firestore (e.g. "shale.jpg" or "shale.png")
+    val rockImageName: String = "",
+
+    // used by UI (filled in by repository)
     val rockImageUrl: String = ""
 )
+
 
 class RockRepository {
 
     private val db = FirebaseFirestore.getInstance()
+    private val storage = FirebaseStorage.getInstance()
 
-    // Fetches the first rock document that matches the provided name.
+    private suspend fun withResolvedImageUrl(rock: Rock?): Rock? {
+        if (rock == null) return null
+
+        android.util.Log.d("ROCKIMG", "Firestore rock=${rock.rockName} name='${rock.rockImageName}' url='${rock.rockImageUrl}'")
+
+        if (rock.rockImageUrl.isNotBlank()) return rock
+        if (rock.rockImageName.isBlank()) return rock
+
+        return try {
+            val path = "rock/${rock.rockImageName}"
+            android.util.Log.d("ROCKIMG", "Resolving storage path=$path")
+
+            val url = storage.reference.child(path).downloadUrl.await().toString()
+            android.util.Log.d("ROCKIMG", "Resolved url=$url")
+
+            rock.copy(rockImageUrl = url)
+        } catch (e: Exception) {
+            android.util.Log.e("ROCKIMG", "Failed to resolve url for ${rock.rockImageName}: ${e.message}", e)
+            rock
+        }
+    }
+
+
     suspend fun getRockByName(rockName: String): Rock? {
         val snapshot = db.collection("rock")
             .whereEqualTo("rockName", rockName)
@@ -25,10 +58,10 @@ class RockRepository {
             .get()
             .await()
 
-        return snapshot.documents.firstOrNull()?.toObject(Rock::class.java)
+        val rock = snapshot.documents.firstOrNull()?.toObject(Rock::class.java)
+        return withResolvedImageUrl(rock)
     }
 
-    // Fetches the rock by its numeric ID.
     suspend fun getRockById(rockId: Int): Rock? {
         val snapshot = db.collection("rock")
             .whereEqualTo("rockID", rockId)
@@ -36,36 +69,19 @@ class RockRepository {
             .get()
             .await()
 
-        return snapshot.documents.firstOrNull()?.toObject(Rock::class.java)
+        val rock = snapshot.documents.firstOrNull()?.toObject(Rock::class.java)
+        return withResolvedImageUrl(rock)
     }
 
-    // Lists every rock from Firestore.
     suspend fun getAllRocks(): List<Rock> {
-        val snapshot = db.collection("rock")
-            .get()
-            .await()
+        val snapshot = db.collection("rock").get().await()
+        val rocks = snapshot.documents.mapNotNull { it.toObject(Rock::class.java) }
 
-        return snapshot.documents.mapNotNull { it.toObject(Rock::class.java) }
+        // Resolve URLs in parallel (faster)
+        return coroutineScope {
+            rocks.map { r -> async { withResolvedImageUrl(r) ?: r } }.map { it.await() }
+        }
     }
-
-    @Suppress("unused")
-    suspend fun addRock(rock: Rock) {
-        db.collection("rock")
-            .add(rock)
-            .await()
-    }
-
-    @Suppress("unused")
-    suspend fun updateRock(rockId: Int, rock: Rock) {
-        val snapshot = db.collection("rock")
-            .whereEqualTo("rockID", rockId)
-            .limit(1)
-            .get()
-            .await()
-        val doc = snapshot.documents.firstOrNull() ?: return
-        doc.reference.set(rock).await()
-    }
-
     suspend fun hasActiveDependencies(rockId: Int): Boolean {
         // Prefer new explicit rockId field on missions/achievements; fall back to legacy rockID if present.
         val missionByRockId = db.collection("missions")
@@ -106,4 +122,7 @@ class RockRepository {
         val doc = snapshot.documents.firstOrNull() ?: return
         doc.reference.delete().await()
     }
+
+
+
 }
