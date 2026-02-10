@@ -372,24 +372,27 @@ private fun EditNotesSheet(
     var customId by remember { mutableStateOf(item.customId) }
     var location by remember { mutableStateOf(item.locationLabel) }
     var notes by remember { mutableStateOf(item.notes) }
-    val userImages = remember(item.userImageUrls, item.imageUrls) { item.effectiveUserImageUrls() }
+    var userImages by remember(item.userImageUrls, item.imageUrls) {
+        mutableStateOf(item.effectiveUserImageUrls())
+    }
     val context = LocalContext.current
 
     val photoPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickMultipleVisualMedia(maxItems = 10)
     ) { uris ->
         if (uris.isNullOrEmpty()) return@rememberLauncherForActivityResult
-        collectionViewModel.uploadUserPhotos(
-            itemId = item.id,
-            uris = uris,
-            context = context,
-            onUploaded = { uploaded ->
-                if (uploaded.isNotEmpty()) {
-                    val merged = (item.effectiveUserImageUrls() + uploaded).distinct()
-                    onItemUpdated(item.copy(userImageUrls = merged))
-                }
-            }
-        )
+                collectionViewModel.uploadUserPhotos(
+                    itemId = item.id,
+                    uris = uris,
+                    context = context,
+                    onUploaded = { uploaded ->
+                        if (uploaded.isNotEmpty()) {
+                            val merged = (userImages + uploaded).distinct()
+                            userImages = merged
+                            onItemUpdated(item.copy(userImageUrls = merged))
+                        }
+                    }
+                )
     }
 
     Box(
@@ -462,6 +465,28 @@ private fun EditNotesSheet(
                                 modifier = Modifier.fillMaxSize(),
                                 contentScale = ContentScale.Crop
                             )
+                            IconButton(
+                                onClick = {
+                                    collectionViewModel.removeUserPhotos(
+                                        itemId = item.id,
+                                        urls = listOf(url)
+                                    ) { removed ->
+                                        if (removed.isNotEmpty()) {
+                                            val updated = userImages.filterNot { it == url }
+                                            userImages = updated
+                                            onItemUpdated(item.copy(userImageUrls = updated))
+                                        }
+                                    }
+                                },
+                                modifier = Modifier
+                                    .align(Alignment.TopEnd)
+                                    .size(20.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Close,
+                                    contentDescription = "Remove photo"
+                                )
+                            }
                         }
                     }
                     Box(

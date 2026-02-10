@@ -271,6 +271,30 @@ class CollectionViewModel(
         }
     }
 
+    // Removes photos from personal notes by URL.
+    fun removeUserPhotos(
+        itemId: String,
+        urls: List<String>,
+        onRemoved: (List<String>) -> Unit = {}
+    ) {
+        val userId = currentUserIdOrError() ?: return
+        if (urls.isEmpty()) return
+
+        viewModelScope.launch {
+            try {
+                repository.removeUserImageUrls(userId, itemId, urls)
+                loadUserCollection(userId)
+                onRemoved(urls)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _events.tryEmit(
+                    CollectionEvent.Error(e.message ?: "Failed to remove photos.", rockId = null)
+                )
+            }
+        }
+    }
+
     // returns urls and shows error if photo uploadad issue
     private suspend fun uploadUserPhotosSuspend(
         userId: String,

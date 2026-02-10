@@ -1,14 +1,11 @@
 // Screen orchestrating bottom navigation and child content in the UI layer.
 package com.example.rockland.ui.screens
-
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.List
-import androidx.compose.material.icons.filled.CardGiftcard
 import androidx.compose.material.icons.filled.Email
 import androidx.compose.material.icons.filled.Map
 import androidx.compose.material.icons.filled.Search
@@ -24,6 +21,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.rockland.data.datasource.remote.UserData
@@ -40,13 +38,12 @@ fun MainScreen(
     onLogoutClick: () -> Unit = {},
     userViewModel: UserViewModel = viewModel(factory = UserViewModel.Factory())
 ) {
-    val selectedTabState = rememberSaveable { mutableIntStateOf(0) }
-    val selectedTab = selectedTabState.intValue
+    var selectedTab by rememberSaveable { mutableIntStateOf(0) }
     val userData by userViewModel.userData.collectAsState()
 
     MainScreenContent(
         selectedTab = selectedTab,
-        onTabSelected = { selectedTabState.intValue = it },
+        onTabSelected = { selectedTab = it },
         userData = userData,
         userViewModel = userViewModel,
         onSettingsClick = onSettingsClick,
@@ -69,16 +66,12 @@ fun MainScreenContent(
         key = "awards_${userData?.userId ?: "_anon"}",
         factory = AwardsViewModel.Factory(userData?.userId)
     )
-    val reviewContentViewModel: ReviewContentViewModel =
-        viewModel(factory = ReviewContentViewModel.Factory())
-
+    val reviewContentViewModel: ReviewContentViewModel = viewModel(factory = ReviewContentViewModel.Factory())
     val collectionTabIndex = rememberSaveable { mutableIntStateOf(0) }
     val awardsTabIndex = rememberSaveable { mutableIntStateOf(0) }
     val inboxReviewTabIndex = rememberSaveable { mutableIntStateOf(0) }
-
     val normalizedRole = userData?.role?.trim()?.lowercase()
     val isAdmin = normalizedRole == "admin" || normalizedRole == "user_admin"
-
     Scaffold(
         bottomBar = {
             NavigationBar(
@@ -112,19 +105,12 @@ fun MainScreenContent(
                     selected = selectedTab == 3,
                     onClick = { onTabSelected(3) }
                 )
-                // 4 - Awards
+                // 4 - Achievement
                 NavigationBarItem(
                     icon = { Icon(Icons.Default.Star, contentDescription = null) },
                     label = { Text("Awards") },
                     selected = selectedTab == 4,
                     onClick = { onTabSelected(4) }
-                )
-                // ✅ 5 - Boxes (NEW)
-                NavigationBarItem(
-                    icon = { Icon(Icons.Default.CardGiftcard, contentDescription = null) },
-                    label = { Text("Boxes") },
-                    selected = selectedTab == 5,
-                    onClick = { onTabSelected(5) }
                 )
             }
         }
@@ -141,7 +127,6 @@ fun MainScreenContent(
                     selectedTabIndex = collectionTabIndex.intValue,
                     onTabSelected = { collectionTabIndex.intValue = it }
                 )
-
                 1 -> MapScreen(
                     viewModel = mapViewModel,
                     userViewModel = userViewModel,
@@ -149,7 +134,7 @@ fun MainScreenContent(
 
                 2 -> InboxScreen(
                     userData = userData,
-                    onProfileClick = { onTabSelected(6) }, // ✅ moved profile to 6
+                    onProfileClick = { onTabSelected(5) },
                     onGoToPage = { notification ->
                         val targetTab = notification.targetTab?.trim()?.lowercase()
                         when (targetTab) {
@@ -166,8 +151,7 @@ fun MainScreenContent(
                             }
                             else -> {
                                 if (notification.type == "rock_dictionary_approved" ||
-                                    notification.title == "Rock Dictionary Update Approved"
-                                ) {
+                                    notification.title == "Rock Dictionary Update Approved") {
                                     collectionTabIndex.intValue = 1
                                     onTabSelected(0)
                                 }
@@ -180,7 +164,6 @@ fun MainScreenContent(
                 )
 
                 3 -> IdentifierScreen(userViewModel = userViewModel)
-
                 4 -> AchievementScreen(
                     userId = userData?.userId,
                     viewModel = awardsViewModel,
@@ -188,22 +171,15 @@ fun MainScreenContent(
                     onTabSelected = { awardsTabIndex.intValue = it },
                     isAdmin = isAdmin
                 )
-
-                // ✅ 5 -> Boxes Screen (NEW)
-                5 -> BoxesScreen(
-                    userId = userData?.userId
-                )
-
-                // ✅ 6 -> Profile Screen (moved from 5)
-                6 -> ProfileScreen(
+                5 -> ProfileScreen(
                     userData = userData,
                     onSettingsClick = onSettingsClick,
                     onLogoutClick = onLogoutClick,
                     onBackClick = { onTabSelected(2) }
                 )
-
                 // Fallback to Collection if selectedTab is invalid
                 else -> {
+                    // Reset to Collection if somehow an invalid tab is selected
                     onTabSelected(0)
                     CollectionScreen()
                 }
@@ -211,3 +187,4 @@ fun MainScreenContent(
         }
     }
 }
+

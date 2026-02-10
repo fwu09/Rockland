@@ -62,6 +62,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.window.Dialog
@@ -80,13 +81,14 @@ import com.example.rockland.presentation.viewmodel.ChatViewModel
 import com.example.rockland.presentation.viewmodel.FriendsViewModel
 import com.example.rockland.presentation.viewmodel.InboxNotification
 import com.example.rockland.presentation.viewmodel.RockDictionaryRequest
+import com.example.rockland.presentation.viewmodel.ExpertApplicationReviewItem
 import com.example.rockland.presentation.viewmodel.ReviewContentViewModel
 import com.example.rockland.presentation.model.UiBanner
 import com.example.rockland.presentation.model.UiBannerType
 import com.example.rockland.ui.components.TopBannerHost
-import com.example.rockland.ui.theme.Rock3
 import com.example.rockland.ui.theme.TextDark
 import coil.compose.AsyncImage
+import com.example.rockland.ui.theme.Rock1
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -94,6 +96,7 @@ import java.util.Locale
 @Composable
 fun InboxScreen(
     userData: UserData?,
+    userViewModel: com.example.rockland.presentation.viewmodel.UserViewModel? = null,
     onProfileClick: () -> Unit,
     onGoToPage: (InboxNotification) -> Unit = {},
     reviewViewModel: ReviewContentViewModel = viewModel(factory = ReviewContentViewModel.Factory()),
@@ -105,20 +108,18 @@ fun InboxScreen(
     val requestFormVisible = remember { mutableStateOf(false) }
     val reviewScreenVisible = remember { mutableStateOf(false) }
     val rockReviewVisible = remember { mutableStateOf(false) }
-    val internalReviewTabIndex = rememberSaveable { mutableIntStateOf(0) }
-    val currentReviewTabIndex = reviewTabIndex ?: internalReviewTabIndex.intValue
-    val setReviewTabIndex: (Int) -> Unit =
-        onReviewTabChanged ?: { internalReviewTabIndex.intValue = it }
-    val reviewTab = if (currentReviewTabIndex == 1) ReviewTab.IMAGES else ReviewTab.COMMENTS
     val friendsScreenVisible = remember { mutableStateOf(false) }
     val friendsBanner = remember { mutableStateOf<UiBanner?>(null) }
     val friendsViewModel: FriendsViewModel = viewModel(factory = FriendsViewModel.Factory())
-    val chatViewModel: ChatViewModel = viewModel(factory = ChatViewModel.Factory())
+    val chatViewModel: ChatViewModel = viewModel(
+        factory = ChatViewModel.Factory(userDataFlow = userViewModel?.userData)
+    )
     val interactiveNotificationScreenVisible = remember { mutableStateOf(false) }
     val pendingComments by reviewViewModel.pendingComments.collectAsState()
     val pendingPhotos by reviewViewModel.pendingPhotos.collectAsState()
     val pendingRockRequests by reviewViewModel.pendingRockRequests.collectAsState()
     val pendingHelpRequests by reviewViewModel.pendingHelpRequests.collectAsState()
+    val pendingExpertApplications by reviewViewModel.pendingExpertApplications.collectAsState()
     val notifications by reviewViewModel.notifications.collectAsState()
     val isReviewLoading by reviewViewModel.isLoading.collectAsState()
     val faqViewModel: FaqViewModel = viewModel(factory = FaqViewModel.Factory())
@@ -129,6 +130,7 @@ fun InboxScreen(
     val helpRequestDetail = remember { mutableStateOf<HelpRequest?>(null) }
     val helpReplyPreviewNotification = remember { mutableStateOf<InboxNotification?>(null) }
     val helpRequestBanner = remember { mutableStateOf<UiBanner?>(null) }
+    val applicationReviewVisible = remember { mutableStateOf(false) }
 
     LaunchedEffect(userData?.userId, userData?.role) {
         reviewViewModel.bindUser(userData?.userId, userData?.role)
@@ -146,75 +148,79 @@ fun InboxScreen(
         faqViewModel.bindUser(userData?.userId)
     }
 
-    val pendingCommentItems = remember(pendingComments) {
-        pendingComments.mapIndexed { index, comment ->
-            PendingComment(
+    val photosByCommentId = remember(pendingPhotos) {
+        pendingPhotos.groupBy { it.commentId }
+    }
+    val pendingReviewItems = remember(pendingComments, pendingPhotos) {
+        val items = mutableListOf<PendingComment>()
+        // comment + attached photos
+        pendingComments.forEachIndexed { index, comment ->
+            val photos = photosByCommentId[comment.commentId].orEmpty()
+            items += PendingComment(
                 id = comment.commentId,
                 number = "${index + 1}",
                 locationId = comment.locationId,
                 userId = comment.userId,
                 author = comment.author,
                 postedAt = formatDate(comment.timestamp),
-                location = "Comment Location",
+                location = comment.locationName.ifBlank { "Unknown Location" },
                 preview = comment.text.take(80),
-                fullText = comment.text
-            )
-        }
-    }
-    val photoGroup = remember(pendingPhotos) {
-        pendingPhotos.groupBy { "${it.locationId}|${it.userId}" }
-    }
-    val pendingImageBatches = remember(pendingPhotos) {
-        photoGroup.entries.mapIndexed { index, entry ->
-            val photos = entry.value
-            val first = photos.first()
-            PendingImageBatch(
-                id = "batch_${index + 1}",
-                batchNumber = "${index + 1}",
-                locationId = first.locationId,
-                userId = first.userId,
-                author = first.author,
-                submittedAt = formatDate(first.timestamp),
-                location = "Image Location",
-                imageCount = photos.size,
+                fullText = comment.text,
                 imageUrls = photos.map { it.imageUrl },
                 photoIds = photos.map { it.locationPhotoId }
             )
         }
+        // photo-only submissions
+        val photoOnly = photosByCommentId[null].orEmpty()
+        val groupedPhotoOnly = photoOnly.groupBy { "${it.locationId}|${it.userId}" }
+        groupedPhotoOnly.entries.forEachIndexed { index, entry ->
+            val photos = entry.value
+            val first = photos.first()
+            items += PendingComment(
+                id = "photo_only_${index + 1}",
+                number = "${pendingComments.size + index + 1}",
+                locationId = first.locationId,
+                userId = first.userId,
+                author = first.author,
+                postedAt = formatDate(first.timestamp),
+                location = first.locationName.ifBlank { "Unknown Location" },
+                preview = "Photo submission",
+                fullText = "Photo submission",
+                imageUrls = photos.map { it.imageUrl },
+                photoIds = photos.map { it.locationPhotoId }
+            )
+        }
+        items
     }
     val commentsById = remember(pendingComments) {
         pendingComments.associateBy { it.commentId }
     }
-    val photosByBatchId = remember(pendingImageBatches, photoGroup) {
-        pendingImageBatches.associate { batch ->
-            val photos = photoGroup["${batch.locationId}|${batch.userId}"].orEmpty()
-            batch.id to photos
-        }
+    val photosById = remember(pendingPhotos) {
+        pendingPhotos.associateBy { it.locationPhotoId }
     }
 
     if (reviewScreenVisible.value) {
         ReviewContentScreen(
-            activeTab = reviewTab,
-            pendingComments = pendingCommentItems,
-            pendingImageBatches = pendingImageBatches,
+            pendingComments = pendingReviewItems,
             onApproveComment = { item ->
-                val comment = commentsById[item.id] ?: return@ReviewContentScreen
-                reviewViewModel.approveComment(comment, userData?.userId)
+                val comment = commentsById[item.id]
+                val photos = item.photoIds.mapNotNull { photosById[it] }
+                if (comment != null) {
+                    reviewViewModel.approveComment(comment, userData?.userId)
+                }
+                if (photos.isNotEmpty()) {
+                    reviewViewModel.approvePhotos(photos, userData?.userId)
+                }
             },
             onRejectComment = { item ->
-                val comment = commentsById[item.id] ?: return@ReviewContentScreen
-                reviewViewModel.rejectComment(comment, userData?.userId)
-            },
-            onApproveImageBatch = { batch ->
-                val photos = photosByBatchId[batch.id].orEmpty()
-                reviewViewModel.approvePhotos(photos, userData?.userId)
-            },
-            onRejectImageBatch = { batch ->
-                val photos = photosByBatchId[batch.id].orEmpty()
-                reviewViewModel.rejectPhotos(photos, userData?.userId)
-            },
-            onTabSelected = { tab ->
-                setReviewTabIndex(if (tab == ReviewTab.IMAGES) 1 else 0)
+                val comment = commentsById[item.id]
+                val photos = item.photoIds.mapNotNull { photosById[it] }
+                if (comment != null) {
+                    reviewViewModel.rejectComment(comment, userData?.userId)
+                }
+                if (photos.isNotEmpty()) {
+                    reviewViewModel.rejectPhotos(photos, userData?.userId)
+                }
             },
             onBack = {
                 reviewScreenVisible.value = false
@@ -234,6 +240,22 @@ fun InboxScreen(
             },
             onBack = {
                 rockReviewVisible.value = false
+                interactiveNotificationScreenVisible.value = true
+            }
+        )
+        return
+    }
+    if (applicationReviewVisible.value) {
+        ApplicationReviewScreen(
+            applications = pendingExpertApplications,
+            onApprove = { item ->
+                reviewViewModel.approveExpertApplication(item, userData?.userId)
+            },
+            onReject = { item ->
+                reviewViewModel.rejectExpertApplication(item, userData?.userId)
+            },
+            onBack = {
+                applicationReviewVisible.value = false
                 interactiveNotificationScreenVisible.value = true
             }
         )
@@ -264,6 +286,8 @@ fun InboxScreen(
     if (chatUiState.activeConversationId != null) {
         ChatScreen(
             otherDisplayName = chatUiState.activeOtherDisplayName,
+            otherProfilePictureUrl = chatUiState.activeOtherProfilePictureUrl,
+            currentUserProfilePictureUrl = userData?.profilePictureUrl.orEmpty(),
             messages = chatUiState.messages,
             currentUserId = chatUiState.currentUserId,
             onBack = chatViewModel::closeConversation,
@@ -294,7 +318,7 @@ fun InboxScreen(
         return
     }
     if (interactiveNotificationScreenVisible.value) {
-        InteractiveNotificationScreen(
+    InteractiveNotificationScreen(
             showContentReviewTab = isVerifiedExpert || isAdmin || isFaqAdmin,
             onBack = { interactiveNotificationScreenVisible.value = false },
             notifications = notifications,
@@ -306,16 +330,12 @@ fun InboxScreen(
                 val targetTab = n.targetTab?.trim()?.lowercase()
                 when {
                     n.type == "help_reply" -> helpReplyPreviewNotification.value = n
-                    n.id == "pending_comments" -> {
-                        setReviewTabIndex(0)
-                        reviewScreenVisible.value = true
-                    }
-                    n.id == "pending_photos" -> {
-                        setReviewTabIndex(1)
+                    n.id == "pending_comments" || n.id == "pending_photos" -> {
                         reviewScreenVisible.value = true
                     }
                     n.id == "pending_rock_dictionary" -> rockReviewVisible.value = true
                     n.id == "pending_help_requests" -> helpRequestListVisible.value = true
+                    n.id == "pending_expert_applications" -> applicationReviewVisible.value = true
                     n.type == "friend_request" || targetTab == "friends" -> {
                         friendsScreenVisible.value = true
                     }
@@ -325,18 +345,17 @@ fun InboxScreen(
             isVerifiedExpert = isVerifiedExpert,
             isAdmin = isAdmin,
             isFaqAdmin = isFaqAdmin,
-            pendingCommentCount = pendingCommentItems.size,
-            pendingImageCount = pendingImageBatches.sumOf { it.imageCount },
+            pendingCommentCount = pendingReviewItems.size,
+            pendingImageCount = pendingPhotos.size,
             pendingRockCount = pendingRockRequests.size,
             pendingHelpCount = pendingHelpRequests.size,
+            pendingApplicationCount = pendingExpertApplications.size,
             onOpenCommentReview = {
                 interactiveNotificationScreenVisible.value = false
-                setReviewTabIndex(0)
                 reviewScreenVisible.value = true
             },
             onOpenImageReview = {
                 interactiveNotificationScreenVisible.value = false
-                setReviewTabIndex(1)
                 reviewScreenVisible.value = true
             },
             onOpenRockReview = {
@@ -346,6 +365,10 @@ fun InboxScreen(
             onOpenHelpRequests = {
                 interactiveNotificationScreenVisible.value = false
                 helpRequestListVisible.value = true
+            },
+            onOpenApplicationReview = {
+                interactiveNotificationScreenVisible.value = false
+                applicationReviewVisible.value = true
             }
         )
         return
@@ -375,32 +398,11 @@ fun InboxScreen(
                         .filter { it.isNotBlank() }
                         .joinToString(" ")
                 }
-                val initials = displayName
-                    .trim()
-                    .split(" ")
-                    .filter { it.isNotBlank() }
-                    .take(2)
-                    .map { it.first() }
-                    .joinToString("")
-                    .ifBlank { "UN" }
-
-                Box(
-                    modifier = Modifier
-                        .size(40.dp)
-                        .clip(CircleShape)
-                        .background(Rock3),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = initials,
-                        color = TextDark,
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-
+                AvatarOrInitials(
+                    profilePictureUrl = userData?.profilePictureUrl.orEmpty(),
+                    displayName = displayName
+                )
                 Spacer(modifier = Modifier.width(12.dp))
-
                 Column {
                     Text(
                         text = displayName,
@@ -448,10 +450,20 @@ fun InboxScreen(
         Spacer(modifier = Modifier.height(24.dp))
 
         // Message area: fixed Interactive notification row + private message list
-        val latestPreview = notifications.firstOrNull()?.let { "${it.title}: ${it.message.take(50)}" }.orEmpty()
-        val unreadNotificationCount = notifications.count { n ->
-            !n.isRead && !n.id.startsWith("pending_")
-        }
+        val latestPreview = notifications.firstOrNull()?.let { n ->
+            if (n.id == "pending_comments") {
+                val commentCount = pendingComments.size
+                val imageCount = pendingPhotos.size
+                if (imageCount > 0) {
+                    "Content review: $commentCount comment(s), $imageCount image(s) pending"
+                } else {
+                    "Content review: $commentCount comment(s) pending"
+                }
+            } else {
+                "${n.title}: ${n.message.take(40)}"
+            }
+        }.orEmpty()
+        val unreadNotificationCount = notifications.count { n -> !n.isRead }
         InteractiveNotificationRow(
             latestPreview = latestPreview,
             unreadCount = unreadNotificationCount,
@@ -476,7 +488,8 @@ fun InboxScreen(
             pendingComments.isEmpty() &&
             pendingPhotos.isEmpty() &&
             pendingRockRequests.isEmpty() &&
-            pendingHelpRequests.isEmpty()
+            pendingHelpRequests.isEmpty() &&
+            pendingExpertApplications.isEmpty()
         ) {
             Box(
                 modifier = Modifier
@@ -659,6 +672,246 @@ private fun RockDictionaryReviewScreen(
             },
             onClose = { selectedRequest.value = null }
         )
+    }
+}
+
+@Composable
+private fun ApplicationReviewScreen(
+    applications: List<ExpertApplicationReviewItem>,
+    onApprove: (ExpertApplicationReviewItem) -> Unit,
+    onReject: (ExpertApplicationReviewItem) -> Unit,
+    onBack: () -> Unit
+) {
+    val selectedApplication = remember { mutableStateOf<ExpertApplicationReviewItem?>(null) }
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color(0xFFF5F5F5))
+            .padding(16.dp)
+    ) {
+        Column(
+            modifier = Modifier.fillMaxSize(),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(onClick = onBack) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = "Back",
+                            tint = TextDark
+                        )
+                    }
+                    Column {
+                        Text(
+                            text = "Application Review",
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.SemiBold,
+                            color = TextDark
+                        )
+                        Text(
+                            text = "Admin Review",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = TextDark.copy(alpha = 0.6f)
+                        )
+                    }
+                }
+            }
+            if (applications.isEmpty()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(Color(0xFFF5F5F5)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = "No pending expert applications.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextDark.copy(alpha = 0.6f)
+                    )
+                }
+            } else {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    applications.forEachIndexed { index, item ->
+                        ApplicationReviewCard(
+                            item = item,
+                            number = index + 1,
+                            onClick = { selectedApplication.value = item }
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    selectedApplication.value?.let { item ->
+        ApplicationReviewDialog(
+            item = item,
+            onApprove = {
+                onApprove(item)
+                selectedApplication.value = null
+            },
+            onReject = {
+                onReject(item)
+                selectedApplication.value = null
+            },
+            onClose = { selectedApplication.value = null }
+        )
+    }
+}
+
+@Composable
+private fun ApplicationReviewCard(
+    item: ExpertApplicationReviewItem,
+    number: Int,
+    onClick: () -> Unit
+) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onClick() },
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
+        shape = MaterialTheme.shapes.medium
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Application No. $number: ${item.fullName}",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    color = TextDark
+                )
+                Box(
+                    modifier = Modifier
+                        .clip(CircleShape)
+                        .background(Color(0xFFEDEDED))
+                        .padding(horizontal = 10.dp, vertical = 4.dp)
+                ) {
+                    Text(
+                        text = item.expertise.ifBlank { "Expert" },
+                        style = MaterialTheme.typography.labelSmall,
+                        color = TextDark
+                    )
+                }
+            }
+            Text(
+                text = "User: ${item.userDisplayName.ifBlank { item.userEmail }}",
+                style = MaterialTheme.typography.bodySmall,
+                color = TextDark.copy(alpha = 0.8f)
+            )
+            Text(
+                text = "Portfolio: ${item.portfolioLink}",
+                style = MaterialTheme.typography.bodySmall,
+                color = TextDark.copy(alpha = 0.7f)
+            )
+        }
+    }
+}
+
+@Composable
+private fun ApplicationReviewDialog(
+    item: ExpertApplicationReviewItem,
+    onApprove: () -> Unit,
+    onReject: () -> Unit,
+    onClose: () -> Unit
+) {
+    Dialog(onDismissRequest = onClose) {
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            shape = MaterialTheme.shapes.medium,
+            colors = CardDefaults.cardColors(containerColor = Color.White)
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Text(
+                    text = "Review expert application",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = TextDark
+                )
+                Text(
+                    text = "User: ${item.userDisplayName.ifBlank { item.userEmail }}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextDark.copy(alpha = 0.8f)
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = "Full Name: ${item.fullName}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextDark
+                )
+                Text(
+                    text = "Expertise: ${item.expertise}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextDark
+                )
+                Text(
+                    text = "Years of experience: ${item.yearsOfExperience}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextDark
+                )
+                Text(
+                    text = "Portfolio: ${item.portfolioLink}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextDark
+                )
+                Text(
+                    text = "Notes from applicant:",
+                    style = MaterialTheme.typography.bodySmall,
+                    fontWeight = FontWeight.SemiBold,
+                    color = TextDark
+                )
+                Text(
+                    text = item.notes.ifBlank { "No additional notes." },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextDark.copy(alpha = 0.9f)
+                )
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    OutlinedButton(
+                        onClick = onReject,
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text("Reject")
+                    }
+                    Button(
+                        onClick = onApprove,
+                        modifier = Modifier.weight(1f),
+                        colors = ButtonDefaults.buttonColors(containerColor = Rock1)
+                    ) {
+                        Text("Approve")
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -1029,7 +1282,7 @@ private fun NotificationsDialog(
 private fun hasGoToPageAction(notification: InboxNotification): Boolean {
     val targetTab = notification.targetTab?.trim()?.lowercase()
     if (!targetTab.isNullOrBlank() || !notification.targetLocationId.isNullOrBlank()) return true
-    if (notification.id in listOf("pending_comments", "pending_photos", "pending_rock_dictionary", "pending_help_requests")) return true
+    if (notification.id in listOf("pending_comments", "pending_photos", "pending_rock_dictionary", "pending_help_requests", "pending_expert_applications")) return true
     if (notification.type in listOf("help_reply", "rock_dictionary_approved", "friend_request")) return true
     if (notification.title == "Rock Dictionary Update Approved") return true
     return false
@@ -1951,6 +2204,8 @@ private fun SearchResultRow(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
+            AvatarOrInitials(profilePictureUrl = user.profilePictureUrl, displayName = user.displayName)
+            Spacer(modifier = Modifier.width(12.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(text = user.displayName, style = MaterialTheme.typography.titleSmall, color = TextDark)
                 if (user.email.isNotBlank()) Text(text = user.email, style = MaterialTheme.typography.bodySmall, color = TextDark.copy(alpha = 0.7f))
@@ -1979,12 +2234,34 @@ private fun IncomingRequestRow(
                 .fillMaxWidth()
                 .padding(12.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Text(text = request.fromDisplayName.ifBlank { "User" }, style = MaterialTheme.typography.titleSmall, color = TextDark)
+            AvatarOrInitials(
+                profilePictureUrl = request.fromProfilePictureUrl,
+                displayName = request.fromDisplayName.ifBlank { "User" },
+                size = 48.dp
+            )
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = request.fromDisplayName.ifBlank { "User" },
+                    style = MaterialTheme.typography.titleSmall,
+                    color = TextDark
+                )
+            }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(onClick = onReject) { Text("Decline") }
-                Button(onClick = onAccept, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2A2A2A))) { Text("Accept") }
+                OutlinedButton(
+                    onClick = onReject,
+                    modifier = Modifier.height(36.dp)
+                ) {
+                    Text("Decline")
+                }
+                Button(
+                    onClick = onAccept,
+                    modifier = Modifier.height(36.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2A2A2A))
+                ) {
+                    Text("Accept")
+                }
             }
         }
     }
@@ -2000,16 +2277,27 @@ private fun OutgoingRequestRow(
         colors = CardDefaults.cardColors(containerColor = Color.White),
         shape = MaterialTheme.shapes.medium
     ) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween
-    ) {
-        Text(text = request.toDisplayName.ifBlank { "User" }, style = MaterialTheme.typography.titleSmall, color = TextDark)
-        TextButton(onClick = onCancel) { Text("Cancel request") }
-    }
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            AvatarOrInitials(
+                profilePictureUrl = request.toProfilePictureUrl,
+                displayName = request.toDisplayName.ifBlank { "User" },
+                size = 48.dp
+            )
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = request.toDisplayName.ifBlank { "User" },
+                    style = MaterialTheme.typography.titleSmall,
+                    color = TextDark
+                )
+            }
+            TextButton(onClick = onCancel) { Text("Cancel request") }
+        }
     }
 }
 
@@ -2032,7 +2320,7 @@ private fun ContactRow(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            InitialsAvatar(displayName = friend.friendDisplayName)
+            AvatarOrInitials(profilePictureUrl = friend.friendProfilePictureUrl, displayName = friend.friendDisplayName)
             Spacer(modifier = Modifier.width(12.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(text = friend.friendDisplayName, style = MaterialTheme.typography.titleSmall, color = TextDark)
@@ -2045,7 +2333,11 @@ private fun ContactRow(
 }
 
 @Composable
-private fun InitialsAvatar(displayName: String) {
+private fun AvatarOrInitials(
+    profilePictureUrl: String,
+    displayName: String,
+    size: Dp = 40.dp
+) {
     val initials = displayName
         .trim()
         .split(" ")
@@ -2056,17 +2348,26 @@ private fun InitialsAvatar(displayName: String) {
         .ifBlank { "UN" }
     Box(
         modifier = Modifier
-            .size(40.dp)
+            .size(size)
             .clip(CircleShape)
             .background(Color(0xFFE8EAF1)),
         contentAlignment = Alignment.Center
     ) {
-        Text(
-            text = initials,
-            style = MaterialTheme.typography.bodyMedium,
-            fontWeight = FontWeight.SemiBold,
-            color = TextDark
-        )
+        if (profilePictureUrl.isNotBlank()) {
+            AsyncImage(
+                model = profilePictureUrl,
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize()
+            )
+        } else {
+            Text(
+                text = initials,
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = TextDark
+            )
+        }
     }
 }
 
@@ -2157,7 +2458,10 @@ private fun UserPreviewProfileScreen(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    InitialsAvatar(displayName = profileName)
+                    AvatarOrInitials(
+                        profilePictureUrl = effective.profilePictureUrl.ifBlank { friend.friendProfilePictureUrl },
+                        displayName = profileName
+                    )
                     Text(
                         text = profileName,
                         style = MaterialTheme.typography.titleLarge,
@@ -2248,6 +2552,8 @@ private fun ProgressStatCard(
 @Composable
 private fun ChatScreen(
     otherDisplayName: String,
+    otherProfilePictureUrl: String = "",
+    currentUserProfilePictureUrl: String = "",
     messages: List<ChatMessage>,
     currentUserId: String,
     onBack: () -> Unit,
@@ -2292,9 +2598,13 @@ private fun ChatScreen(
                     items(messages.size) { idx ->
                         val msg = messages[messages.size - 1 - idx]
                         val isOwn = msg.senderId == currentUserId
+                        val senderAvatarUrl = if (isOwn) currentUserProfilePictureUrl else otherProfilePictureUrl
+                        val senderDisplayName = if (isOwn) "" else otherDisplayName
                         ChatMessageRow(
                             message = msg,
                             isOwn = isOwn,
+                            senderAvatarUrl = senderAvatarUrl,
+                            senderDisplayName = senderDisplayName,
                             isSelected = selectedMessageId == msg.id,
                             onLongPress = {
                                 if (isOwn) {
@@ -2337,6 +2647,8 @@ private fun ChatScreen(
 private fun ChatMessageRow(
     message: ChatMessage,
     isOwn: Boolean,
+    senderAvatarUrl: String = "",
+    senderDisplayName: String = "",
     isSelected: Boolean,
     onLongPress: () -> Unit,
     onDelete: () -> Unit
@@ -2352,8 +2664,13 @@ private fun ChatMessageRow(
     }
     Row(
         modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = if (isOwn) Arrangement.End else Arrangement.Start
+        horizontalArrangement = if (isOwn) Arrangement.End else Arrangement.Start,
+        verticalAlignment = Alignment.Bottom
     ) {
+        if (!isOwn) {
+            AvatarOrInitials(profilePictureUrl = senderAvatarUrl, displayName = senderDisplayName)
+            Spacer(modifier = Modifier.width(8.dp))
+        }
         Card(
             modifier = cardModifier,
             colors = CardDefaults.cardColors(containerColor = if (isOwn) Color(0xFFE8EAF1) else Color.White),
@@ -2383,6 +2700,10 @@ private fun ChatMessageRow(
                 }
             }
         }
+        if (isOwn) {
+            Spacer(modifier = Modifier.width(8.dp))
+            AvatarOrInitials(profilePictureUrl = senderAvatarUrl, displayName = senderDisplayName)
+        }
     }
 }
 
@@ -2406,7 +2727,9 @@ private fun InteractiveNotificationScreen(
     onOpenCommentReview: () -> Unit = {},
     onOpenImageReview: () -> Unit = {},
     onOpenRockReview: () -> Unit = {},
-    onOpenHelpRequests: () -> Unit = {}
+    onOpenHelpRequests: () -> Unit = {},
+    pendingApplicationCount: Int = 0,
+    onOpenApplicationReview: () -> Unit = {}
 ) {
     val interactiveTabIndex = rememberSaveable { mutableIntStateOf(0) }
     val currentTab = interactiveTabIndex.intValue
@@ -2485,7 +2808,9 @@ private fun InteractiveNotificationScreen(
                         onOpenCommentReview = onOpenCommentReview,
                         onOpenImageReview = onOpenImageReview,
                         onOpenRockReview = onOpenRockReview,
-                        onOpenHelpRequests = onOpenHelpRequests
+                        onOpenHelpRequests = onOpenHelpRequests,
+                        pendingApplicationCount = pendingApplicationCount,
+                        onOpenApplicationReview = onOpenApplicationReview
                     )
                 }
             }
@@ -2620,7 +2945,9 @@ private fun ContentReviewTabContent(
     onOpenCommentReview: () -> Unit,
     onOpenImageReview: () -> Unit,
     onOpenRockReview: () -> Unit,
-    onOpenHelpRequests: () -> Unit
+    onOpenHelpRequests: () -> Unit,
+    pendingApplicationCount: Int,
+    onOpenApplicationReview: () -> Unit
 ) {
     LazyColumn(
         modifier = Modifier
@@ -2638,23 +2965,39 @@ private fun ContentReviewTabContent(
                 )
             }
             item {
+                val subtitle = if (pendingImageCount > 0) {
+                    "$pendingCommentCount Comments, $pendingImageCount Images Pending"
+                } else {
+                    "$pendingCommentCount Comments Pending"
+                }
                 ReviewEntryCard(
-                    title = "Comment Review",
-                    subtitle = "$pendingCommentCount Comments Pending",
+                    title = "Content Review",
+                    subtitle = subtitle,
                     onClick = onOpenCommentReview
-                )
-            }
-            item {
-                ReviewEntryCard(
-                    title = "Image Review",
-                    subtitle = "$pendingImageCount Images Pending",
-                    onClick = onOpenImageReview
                 )
             }
         }
         if (isAdmin) {
             item {
                 Spacer(modifier = Modifier.height(if (isVerifiedExpert) 12.dp else 0.dp))
+            }
+            item {
+                Text(
+                    text = "Application Review",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = TextDark
+                )
+            }
+            item {
+                ReviewEntryCard(
+                    title = "Application Review",
+                    subtitle = "$pendingApplicationCount Applications Pending",
+                    onClick = onOpenApplicationReview
+                )
+            }
+            item {
+                Spacer(modifier = Modifier.height(12.dp))
             }
             item {
                 Text(
@@ -2842,7 +3185,7 @@ private fun ConversationRow(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            InitialsAvatar(displayName = conversation.otherDisplayName)
+            AvatarOrInitials(profilePictureUrl = conversation.otherProfilePictureUrl, displayName = conversation.otherDisplayName)
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = conversation.otherDisplayName.ifBlank { "Chat" },

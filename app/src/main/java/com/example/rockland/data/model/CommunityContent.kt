@@ -10,6 +10,7 @@ enum class ContentStatus {
 data class LocationComment(
     val commentId: String = "",
     val locationId: String = "",
+    val locationName: String = "",
     val userId: String = "",
     val author: String = "",
     val text: String = "",
@@ -17,7 +18,7 @@ data class LocationComment(
     val updatedAt: Long? = null,
 
     // ve/admin content-moderation
-    val status: ContentStatus = ContentStatus.APPROVED,
+    val status: ContentStatus = ContentStatus.PENDING,
     val reviewedBy: String? = null,
     val reviewedAt: Long? = null
 )
@@ -26,6 +27,7 @@ data class LocationComment(
 data class LocationPhoto(
     val locationPhotoId: String = "",
     val locationId: String = "",
+    val locationName: String = "",
     val commentId: String? = null,
     val userId: String = "",
     val author: String = "Unknown" , //change this value in prod state since there should be no more unknown users
@@ -34,7 +36,7 @@ data class LocationPhoto(
     val timestamp: Long = 0L,
 
     // ve/admin content-moderation
-    val status: ContentStatus = ContentStatus.APPROVED,
+    val status: ContentStatus = ContentStatus.PENDING,
     val reviewedBy: String? = null,
     val reviewedAt: Long? = null
 )

@@ -1,5 +1,6 @@
 package com.example.rockland.data.repository
 
+import android.net.Uri
 import com.example.rockland.data.datasource.remote.FirebaseUserService
 import com.example.rockland.data.datasource.remote.UserData
 import com.google.firebase.auth.FirebaseUser
@@ -25,6 +26,10 @@ class  UserProfileRepository(
 
     suspend fun updateUserProfile(userId: String, updates: Map<String, Any>) {
         userService.updateUserProfile(userId, updates)
+    }
+
+    suspend fun uploadProfilePicture(userId: String, imageUri: Uri): String {
+        return userService.uploadProfilePicture(userId, imageUri)
     }
 
     suspend fun ensureAdminData(userId: String) {

@@ -164,6 +164,28 @@ class CollectionRepository(
             .addOnFailureListener { e -> cont.resumeWithException(e) }
     }
 
+    // Removes user photo URLs from the collection entry.
+    suspend fun removeUserImageUrls(
+        userId: String,
+        itemId: String,
+        urls: List<String>
+    ): Unit = suspendCoroutine { cont ->
+        if (urls.isEmpty()) {
+            cont.resume(Unit)
+            return@suspendCoroutine
+        }
+        userCollectionRef(userId)
+            .document(itemId)
+            .update(
+                mapOf(
+                    "userImageUrls" to FieldValue.arrayRemove(*urls.toTypedArray()),
+                    "updatedAt" to FieldValue.serverTimestamp()
+                )
+            )
+            .addOnSuccessListener { cont.resume(Unit) }
+            .addOnFailureListener { e -> cont.resumeWithException(e) }
+    }
+
     // Migrates legacy imageUrls into userImageUrls and optionally deletes the old field.
     suspend fun migrateLegacyImageUrls(
         userId: String,

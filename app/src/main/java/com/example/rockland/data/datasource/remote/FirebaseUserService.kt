@@ -1,9 +1,11 @@
 // Firestore-based user profile model and service used by UserViewModel.
 package com.example.rockland.data.datasource.remote
 
+import android.net.Uri
 import com.google.firebase.auth.FirebaseUser
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.SetOptions
+import com.google.firebase.storage.FirebaseStorage
 import kotlinx.coroutines.tasks.await
 import com.google.firebase.Timestamp
 import com.google.firebase.firestore.Exclude
@@ -42,6 +44,7 @@ data class UserData(
     val email: String = "",
     val joinDate: String = "",
     val role: String = "nature_enthusiast",
+    val profilePictureUrl: String = "",
     val points: Int = 0,
     val missionsCompleted: Int = 0,
     val achievementsCompleted: Int = 0,
@@ -125,6 +128,7 @@ class FirebaseUserService {
                         email = document.getString("email") ?: "",
                         joinDate = document.getString("joinDate") ?: "",
                         role = document.getString("role") ?: "nature_enthusiast",
+                        profilePictureUrl = document.getString("profilePictureUrl") ?: "",
                         points = (document.getLong("points") ?: 0L).toInt(),
                         missionsCompleted = (document.getLong("missionsCompleted") ?: 0L).toInt(),
                         achievementsCompleted = (document.getLong("achievementsCompleted") ?: 0L).toInt(),
@@ -160,6 +164,14 @@ class FirebaseUserService {
     // Update user profile
     suspend fun updateUserProfile(userId: String, updates: Map<String, Any>) {
         usersCollection.document(userId).set(updates, SetOptions.merge()).await()
+    }
+
+    // Upload profile picture to Storage (users/{uid}/profile/{fileName}), return download URL
+    suspend fun uploadProfilePicture(userId: String, imageUri: Uri): String {
+        val fileName = "avatar_${System.currentTimeMillis()}.jpg"
+        val ref = FirebaseStorage.getInstance().reference.child("users").child(userId).child("profile").child(fileName)
+        ref.putFile(imageUri).await()
+        return ref.downloadUrl.await().toString()
     }
 
     companion object {

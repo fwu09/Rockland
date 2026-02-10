@@ -5,7 +5,8 @@ package com.example.rockland.data.model
 data class UserSummary(
     val userId: String,
     val displayName: String,
-    val email: String = ""
+    val email: String = "",
+    val profilePictureUrl: String = ""
 )
 
 /** Outgoing or incoming friend request. */
@@ -15,14 +16,17 @@ data class FriendRequest(
     val toUserId: String,
     val fromDisplayName: String = "",
     val toDisplayName: String = "",
-    val createdAtMillis: Long = 0L
+    val createdAtMillis: Long = 0L,
+    val fromProfilePictureUrl: String = "",
+    val toProfilePictureUrl: String = ""
 )
 
 /** Friend relation (mutual). */
 data class FriendRelation(
     val friendUserId: String,
     val friendDisplayName: String = "",
-    val friendEmail: String = ""
+    val friendEmail: String = "",
+    val friendProfilePictureUrl: String = ""
 )
 
 /** Single chat message. */
@@ -40,6 +44,7 @@ data class ChatConversation(
     val id: String,
     val otherUserId: String,
     val otherDisplayName: String = "",
+    val otherProfilePictureUrl: String = "",
     val lastMessagePreview: String = "",
     val lastMessageAtMillis: Long = 0L,
     val unreadCount: Int = 0
