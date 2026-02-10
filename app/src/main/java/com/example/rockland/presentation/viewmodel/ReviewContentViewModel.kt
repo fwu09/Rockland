@@ -85,6 +85,8 @@ class ReviewContentViewModel(
     private val _userRawNotifications = MutableStateFlow<List<UserNotification>>(emptyList())
     private var notificationsJob: Job? = null
     private var pendingApplicationsJob: Job? = null
+    private var pendingCommentsJob: Job? = null
+    private var pendingPhotosJob: Job? = null
 
     private val _userId = MutableStateFlow<String?>(null)
     private val _role = MutableStateFlow("nature_enthusiast")
@@ -99,6 +101,8 @@ class ReviewContentViewModel(
         if (changed) {
             notificationsJob?.cancel()
             pendingApplicationsJob?.cancel()
+            pendingCommentsJob?.cancel()
+            pendingPhotosJob?.cancel()
             _userRawNotifications.value = emptyList()
             if (!userId.isNullOrBlank()) {
                 notificationsJob = viewModelScope.launch {
@@ -112,6 +116,20 @@ class ReviewContentViewModel(
                 pendingApplicationsJob = viewModelScope.launch {
                     repository.observePendingExpertApplications().collectLatest { list ->
                         _pendingExpertApplications.value = list
+                        refreshNotifications()
+                    }
+                }
+            }
+            if (normalizedRole == "verified_expert") {
+                pendingCommentsJob = viewModelScope.launch {
+                    repository.observePendingComments().collectLatest { comments ->
+                        _pendingComments.value = comments
+                        refreshNotifications()
+                    }
+                }
+                pendingPhotosJob = viewModelScope.launch {
+                    repository.observePendingPhotos().collectLatest { photos ->
+                        _pendingPhotos.value = photos
                         refreshNotifications()
                     }
                 }
@@ -185,25 +203,21 @@ class ReviewContentViewModel(
         if (role == "verified_expert") {
             val seen = if (!userId.isNullOrBlank()) repository.fetchInboxSeenState(userId) else ContentReviewRepository.InboxSeenState()
             val notifications = buildList {
-                if (pendingComments.isNotEmpty()) {
+                if (pendingComments.isNotEmpty() || pendingPhotos.isNotEmpty()) {
+                    val commentCount = pendingComments.size
+                    val photoCount = pendingPhotos.size
+                    val message = if (photoCount > 0) {
+                        "You have $commentCount comment(s) and $photoCount image submission(s) waiting for review."
+                    } else {
+                        "You have $commentCount comment(s) waiting for review."
+                    }
                     add(
                         InboxNotification(
                             id = "pending_comments",
-                            title = "New Comment Pending",
-                            message = "You have ${pendingComments.size} comments waiting for review.",
+                            title = "Content Pending Review",
+                            message = message,
                             date = "Today",
-                            isRead = pendingComments.size <= seen.pendingCommentCount
-                        )
-                    )
-                }
-                if (pendingPhotos.isNotEmpty()) {
-                    add(
-                        InboxNotification(
-                            id = "pending_photos",
-                            title = "New Image Submission",
-                            message = "You have ${pendingPhotos.size} image submissions waiting for review.",
-                            date = "Today",
-                            isRead = pendingPhotos.size <= seen.pendingPhotoCount
+                            isRead = commentCount <= seen.pendingCommentCount && photoCount <= seen.pendingPhotoCount
                         )
                     )
                 }
@@ -316,7 +330,7 @@ class ReviewContentViewModel(
                     repository.addUserNotification(
                         userId = comment.userId,
                         title = "Comment Rejected",
-                        message = "Your comment was rejected by a verified expert.",
+                        message = "Your comment at ${comment.locationName.ifBlank { "the location" }} was rejected by a verified expert.",
                         targetTab = "map",
                         targetLocationId = comment.locationId
                     )
@@ -344,7 +358,7 @@ class ReviewContentViewModel(
                             repository.addUserNotification(
                                 userId = photo.userId,
                                 title = "Image Approved",
-                                message = "Your image submission was approved by a verified expert.",
+                                message = "Your image at ${photo.locationName.ifBlank { "the location" }} was approved by a verified expert.",
                                 targetTab = "map",
                                 targetLocationId = photo.locationId
                             )
@@ -380,7 +394,7 @@ class ReviewContentViewModel(
                             repository.addUserNotification(
                                 userId = photo.userId,
                                 title = "Image Rejected",
-                                message = "Your image submission was rejected by a verified expert.",
+                                message = "Your image at ${photo.locationName.ifBlank { "the location" }} was rejected by a verified expert.",
                                 targetTab = "map",
                                 targetLocationId = photo.locationId
                             )
@@ -472,10 +486,7 @@ class ReviewContentViewModel(
             when (notificationId) {
                 "pending_comments" -> repository.updateInboxSeenState(
                     userId = userId,
-                    pendingCommentCount = _pendingComments.value.size
-                )
-                "pending_photos" -> repository.updateInboxSeenState(
-                    userId = userId,
+                    pendingCommentCount = _pendingComments.value.size,
                     pendingPhotoCount = _pendingPhotos.value.size
                 )
                 "pending_rock_dictionary" -> repository.updateInboxSeenState(
