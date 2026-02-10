@@ -9,9 +9,11 @@ import com.example.rockland.data.model.LocationComment
 import com.example.rockland.data.model.LocationPhoto
 import com.example.rockland.data.repository.ContentReviewRepository
 import com.example.rockland.data.repository.UserNotification
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -46,6 +48,19 @@ data class RockDictionaryRequest(
     val reviewedAt: Long?
 )
 
+data class ExpertApplicationReviewItem(
+    val userId: String,
+    val userDisplayName: String,
+    val userEmail: String,
+    val currentRole: String,
+    val fullName: String,
+    val expertise: String,
+    val yearsOfExperience: String,
+    val portfolioLink: String,
+    val notes: String,
+    val submittedAt: Long
+)
+
 class ReviewContentViewModel(
     private val repository: ContentReviewRepository = ContentReviewRepository()
 ) : ViewModel() {
@@ -61,8 +76,15 @@ class ReviewContentViewModel(
     private val _pendingHelpRequests = MutableStateFlow<List<HelpRequest>>(emptyList())
     val pendingHelpRequests: StateFlow<List<HelpRequest>> = _pendingHelpRequests.asStateFlow()
 
+    private val _pendingExpertApplications = MutableStateFlow<List<ExpertApplicationReviewItem>>(emptyList())
+    val pendingExpertApplications: StateFlow<List<ExpertApplicationReviewItem>> = _pendingExpertApplications.asStateFlow()
+
     private val _notifications = MutableStateFlow<List<InboxNotification>>(emptyList())
     val notifications: StateFlow<List<InboxNotification>> = _notifications.asStateFlow()
+
+    private val _userRawNotifications = MutableStateFlow<List<UserNotification>>(emptyList())
+    private var notificationsJob: Job? = null
+    private var pendingApplicationsJob: Job? = null
 
     private val _userId = MutableStateFlow<String?>(null)
     private val _role = MutableStateFlow("nature_enthusiast")
@@ -74,6 +96,27 @@ class ReviewContentViewModel(
         val changed = _userId.value != userId || _role.value != normalizedRole
         _userId.value = userId
         _role.value = normalizedRole
+        if (changed) {
+            notificationsJob?.cancel()
+            pendingApplicationsJob?.cancel()
+            _userRawNotifications.value = emptyList()
+            if (!userId.isNullOrBlank()) {
+                notificationsJob = viewModelScope.launch {
+                    repository.observeUserNotifications(userId).collectLatest { raw ->
+                        _userRawNotifications.value = raw
+                        refreshNotifications()
+                    }
+                }
+            }
+            if (normalizedRole == "admin") {
+                pendingApplicationsJob = viewModelScope.launch {
+                    repository.observePendingExpertApplications().collectLatest { list ->
+                        _pendingExpertApplications.value = list
+                        refreshNotifications()
+                    }
+                }
+            }
+        }
         if (changed) {
             refresh()
         }
@@ -104,13 +147,25 @@ class ReviewContentViewModel(
                     emptyList()
                 }
                 _pendingHelpRequests.value = helpRequests
-                refreshNotifications(comments, photos, rockRequests, helpRequests)
+                val expertApplications = if (_role.value == "admin") {
+                    try {
+                        repository.fetchPendingExpertApplications()
+                    } catch (e: Exception) {
+                        android.util.Log.e("ReviewContentViewModel", "Failed to fetch pending expert applications", e)
+                        emptyList()
+                    }
+                } else {
+                    emptyList()
+                }
+                _pendingExpertApplications.value = expertApplications
+                refreshNotifications()
             } catch (e: Exception) {
                 android.util.Log.e("ReviewContentViewModel", "Failed to refresh", e)
                 _pendingComments.value = emptyList()
                 _pendingPhotos.value = emptyList()
                 _pendingRockRequests.value = emptyList()
                 _pendingHelpRequests.value = emptyList()
+                _pendingExpertApplications.value = emptyList()
                 _notifications.value = emptyList()
             } finally {
                 _isLoading.value = false
@@ -118,12 +173,13 @@ class ReviewContentViewModel(
         }
     }
 
-    private suspend fun refreshNotifications(
-        pendingComments: List<LocationComment>,
-        pendingPhotos: List<LocationPhoto>,
-        pendingRockRequests: List<RockDictionaryRequest>,
-        pendingHelpRequests: List<HelpRequest>
-    ) {
+    private suspend fun refreshNotifications() {
+        val pendingComments = _pendingComments.value
+        val pendingPhotos = _pendingPhotos.value
+        val pendingRockRequests = _pendingRockRequests.value
+        val pendingHelpRequests = _pendingHelpRequests.value
+        val pendingExpertApplications = _pendingExpertApplications.value
+        val userNotifications = _userRawNotifications.value
         val role = _role.value
         val userId = _userId.value
         if (role == "verified_expert") {
@@ -151,9 +207,8 @@ class ReviewContentViewModel(
                         )
                     )
                 }
-                if (!userId.isNullOrBlank()) {
-                    val raw = repository.fetchUserNotifications(userId)
-                    addAll(raw.map { it.toUi() })
+                if (userNotifications.isNotEmpty()) {
+                    addAll(userNotifications.map { it.toUi() })
                 }
             }
             _notifications.value = notifications
@@ -182,6 +237,18 @@ class ReviewContentViewModel(
                         )
                     )
                 }
+                if (pendingExpertApplications.isNotEmpty()) {
+                    val latestSubmittedAt = pendingExpertApplications.maxOfOrNull { it.submittedAt } ?: 0L
+                    add(
+                        InboxNotification(
+                            id = "pending_expert_applications",
+                            title = "Application Review",
+                            message = "You have ${pendingExpertApplications.size} expert application(s) waiting for review.",
+                            date = "Today",
+                            isRead = latestSubmittedAt <= seen.pendingExpertApplicationLastSeenAt
+                        )
+                    )
+                }
             }
             _notifications.value = notifications
         } else if (role == "user_admin") {
@@ -198,15 +265,13 @@ class ReviewContentViewModel(
                         )
                     )
                 }
-                if (!userId.isNullOrBlank()) {
-                    val raw = repository.fetchUserNotifications(userId)
-                    addAll(raw.map { it.toUi() })
+                if (userNotifications.isNotEmpty()) {
+                    addAll(userNotifications.map { it.toUi() })
                 }
             }
             _notifications.value = notifications
         } else if (!userId.isNullOrBlank()) {
-            val raw = repository.fetchUserNotifications(userId)
-            _notifications.value = raw.map { it.toUi() }
+            _notifications.value = userNotifications.map { it.toUi() }
         } else {
             _notifications.value = emptyList()
         }
@@ -376,6 +441,30 @@ class ReviewContentViewModel(
         }
     }
 
+    fun approveExpertApplication(item: ExpertApplicationReviewItem, reviewerId: String?) {
+        viewModelScope.launch {
+            try {
+                repository.approveExpertApplication(item, reviewerId)
+            } catch (e: Exception) {
+                android.util.Log.e("ReviewContentViewModel", "Failed to approve expert application", e)
+            } finally {
+                refresh()
+            }
+        }
+    }
+
+    fun rejectExpertApplication(item: ExpertApplicationReviewItem, reviewerId: String?) {
+        viewModelScope.launch {
+            try {
+                repository.rejectExpertApplication(item, reviewerId)
+            } catch (e: Exception) {
+                android.util.Log.e("ReviewContentViewModel", "Failed to reject expert application", e)
+            } finally {
+                refresh()
+            }
+        }
+    }
+
     fun markNotificationRead(notificationId: String) {
         val userId = _userId.value
         if (userId.isNullOrBlank()) return
@@ -396,6 +485,11 @@ class ReviewContentViewModel(
                 "pending_help_requests" -> repository.updateInboxSeenState(
                     userId = userId,
                     pendingHelpCount = _pendingHelpRequests.value.size
+                )
+                "pending_expert_applications" -> repository.updateInboxSeenState(
+                    userId = userId,
+                    pendingExpertApplicationCount = _pendingExpertApplications.value.size,
+                    pendingExpertApplicationLastSeenAt = (_pendingExpertApplications.value.maxOfOrNull { it.submittedAt } ?: 0L)
                 )
                 else -> repository.markNotificationRead(userId, notificationId)
             }

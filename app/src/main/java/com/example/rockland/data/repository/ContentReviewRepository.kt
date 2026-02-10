@@ -6,11 +6,17 @@ import com.example.rockland.data.model.HelpRequestStatus
 import com.example.rockland.data.model.LocationComment
 import com.example.rockland.data.model.LocationPhoto
 import com.example.rockland.presentation.viewmodel.RockDictionaryRequest
+import com.example.rockland.presentation.viewmodel.ExpertApplicationReviewItem
+import com.example.rockland.data.datasource.remote.ApplicationStatus
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.ListenerRegistration
 import com.google.firebase.firestore.Query
 import com.google.firebase.Timestamp
 import com.google.firebase.storage.FirebaseStorage
 import android.net.Uri
+import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.tasks.await
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
@@ -35,6 +41,59 @@ class ContentReviewRepository(
     private val rockDictionaryRequestsRef = firestore.collection("rockDictionaryRequests")
     private val rocksRef = firestore.collection("rock")
     private val helpRequestsRef = firestore.collection("help_requests")
+
+    suspend fun fetchPendingExpertApplications(): List<ExpertApplicationReviewItem> {
+        val snapshot = usersRef
+            .whereEqualTo("expertApplication.status", ApplicationStatus.PENDING.name)
+            .orderBy("expertApplication.submittedAt", Query.Direction.DESCENDING)
+            .get()
+            .await()
+        return snapshot.documents.map { doc -> expertApplicationFromUserDoc(doc) }
+    }
+
+    fun observePendingExpertApplications(): Flow<List<ExpertApplicationReviewItem>> = callbackFlow {
+        val registration: ListenerRegistration = usersRef
+            .whereEqualTo("expertApplication.status", ApplicationStatus.PENDING.name)
+            .orderBy("expertApplication.submittedAt", Query.Direction.DESCENDING)
+            .addSnapshotListener { snapshot, error ->
+                if (error != null) {
+                    trySend(emptyList())
+                    return@addSnapshotListener
+                }
+                val docs = snapshot?.documents.orEmpty()
+                val list = docs.map { doc -> expertApplicationFromUserDoc(doc) }
+                trySend(list)
+            }
+        awaitClose { registration.remove() }
+    }
+
+    private fun expertApplicationFromUserDoc(doc: com.google.firebase.firestore.DocumentSnapshot): ExpertApplicationReviewItem {
+        val submittedAtRaw = doc.get("expertApplication.submittedAt")
+        val submittedAt = when (submittedAtRaw) {
+            is Timestamp -> submittedAtRaw.toDate().time
+            is Number -> submittedAtRaw.toLong()
+            else -> 0L
+        }
+        val firstName = doc.getString("firstName") ?: ""
+        val lastName = doc.getString("lastName") ?: ""
+        val displayName = listOf(firstName, lastName)
+            .filter { it.isNotBlank() }
+            .joinToString(" ")
+            .ifBlank { doc.getString("email") ?: "User" }
+
+        return ExpertApplicationReviewItem(
+            userId = doc.getString("userId") ?: doc.id,
+            userDisplayName = displayName,
+            userEmail = doc.getString("email") ?: "",
+            currentRole = doc.getString("role") ?: "nature_enthusiast",
+            fullName = doc.getString("expertApplication.fullName") ?: "",
+            expertise = doc.getString("expertApplication.expertise") ?: "",
+            yearsOfExperience = doc.getString("expertApplication.yearsOfExperience") ?: "",
+            portfolioLink = doc.getString("expertApplication.portfolioLink") ?: "",
+            notes = doc.getString("expertApplication.notes") ?: "",
+            submittedAt = submittedAt
+        )
+    }
 
     suspend fun fetchPendingComments(): List<LocationComment> {
         val snapshot = firestore.collectionGroup("comments")
@@ -169,6 +228,53 @@ class ContentReviewRepository(
         }
     }
 
+    suspend fun approveExpertApplication(
+        item: ExpertApplicationReviewItem,
+        reviewerId: String?
+    ) {
+        if (item.userId.isBlank()) return
+        val now = System.currentTimeMillis()
+        val updates = mutableMapOf<String, Any>(
+            "role" to "verified_expert",
+            "expertApplication.status" to ApplicationStatus.APPROVED.name,
+            "expertApplication.reviewedAt" to now
+        )
+        if (!reviewerId.isNullOrBlank()) {
+            updates["expertApplication.reviewedBy"] = reviewerId
+        }
+        usersRef.document(item.userId).update(updates).await()
+        addUserNotification(
+            userId = item.userId,
+            title = "Expert application approved",
+            message = "Your verified expert application has been approved. You are now a verified expert.",
+            targetTab = "inbox",
+            type = "expert_application_approved"
+        )
+    }
+
+    suspend fun rejectExpertApplication(
+        item: ExpertApplicationReviewItem,
+        reviewerId: String?
+    ) {
+        if (item.userId.isBlank()) return
+        val now = System.currentTimeMillis()
+        val updates = mutableMapOf<String, Any>(
+            "expertApplication.status" to ApplicationStatus.REJECTED.name,
+            "expertApplication.reviewedAt" to now
+        )
+        if (!reviewerId.isNullOrBlank()) {
+            updates["expertApplication.reviewedBy"] = reviewerId
+        }
+        usersRef.document(item.userId).update(updates).await()
+        addUserNotification(
+            userId = item.userId,
+            title = "Expert application rejected",
+            message = "Your verified expert application has been rejected by an admin.",
+            targetTab = "inbox",
+            type = "expert_application_rejected"
+        )
+    }
+
     suspend fun updateCommentStatus(
         locationId: String,
         commentId: String,
@@ -296,7 +402,9 @@ class ContentReviewRepository(
         val pendingCommentCount: Int = 0,
         val pendingPhotoCount: Int = 0,
         val pendingRockCount: Int = 0,
-        val pendingHelpCount: Int = 0
+        val pendingHelpCount: Int = 0,
+        val pendingExpertApplicationCount: Int = 0,
+        val pendingExpertApplicationLastSeenAt: Long = 0L
     )
 
     suspend fun fetchInboxSeenState(userId: String): InboxSeenState {
@@ -306,7 +414,9 @@ class ContentReviewRepository(
             pendingCommentCount = (doc.getLong("inboxSeenPendingCommentCount") ?: 0L).toInt(),
             pendingPhotoCount = (doc.getLong("inboxSeenPendingPhotoCount") ?: 0L).toInt(),
             pendingRockCount = (doc.getLong("inboxSeenPendingRockCount") ?: 0L).toInt(),
-            pendingHelpCount = (doc.getLong("inboxSeenPendingHelpCount") ?: 0L).toInt()
+            pendingHelpCount = (doc.getLong("inboxSeenPendingHelpCount") ?: 0L).toInt(),
+            pendingExpertApplicationCount = (doc.getLong("inboxSeenPendingExpertApplicationCount") ?: 0L).toInt(),
+            pendingExpertApplicationLastSeenAt = (doc.getLong("inboxSeenPendingExpertApplicationLastSeenAt") ?: 0L)
         )
     }
 
@@ -315,7 +425,9 @@ class ContentReviewRepository(
         pendingCommentCount: Int? = null,
         pendingPhotoCount: Int? = null,
         pendingRockCount: Int? = null,
-        pendingHelpCount: Int? = null
+        pendingHelpCount: Int? = null,
+        pendingExpertApplicationCount: Int? = null,
+        pendingExpertApplicationLastSeenAt: Long? = null
     ) {
         if (userId.isBlank()) return
         val updates = mutableMapOf<String, Any>()
@@ -323,34 +435,49 @@ class ContentReviewRepository(
         pendingPhotoCount?.let { updates["inboxSeenPendingPhotoCount"] = it }
         pendingRockCount?.let { updates["inboxSeenPendingRockCount"] = it }
         pendingHelpCount?.let { updates["inboxSeenPendingHelpCount"] = it }
+        pendingExpertApplicationCount?.let { updates["inboxSeenPendingExpertApplicationCount"] = it }
+        pendingExpertApplicationLastSeenAt?.let { updates["inboxSeenPendingExpertApplicationLastSeenAt"] = it }
         if (updates.isEmpty()) return
         usersRef.document(userId).set(updates, com.google.firebase.firestore.SetOptions.merge()).await()
     }
 
-    suspend fun fetchUserNotifications(userId: String): List<UserNotification> {
-        if (userId.isBlank()) return emptyList()
-        val snapshot = usersRef.document(userId)
+    fun observeUserNotifications(userId: String): Flow<List<UserNotification>> = callbackFlow {
+        if (userId.isBlank()) {
+            trySend(emptyList())
+            close()
+            return@callbackFlow
+        }
+        val registration: ListenerRegistration = usersRef.document(userId)
             .collection("notifications")
             .orderBy("createdAt", Query.Direction.DESCENDING)
-            .get()
-            .await()
-        return snapshot.documents.map { doc ->
-            val createdAt = when (val raw = doc.get("createdAt")) {
-                is Number -> raw.toLong()
-                is Timestamp -> raw.toDate().time
-                else -> 0L
+            .addSnapshotListener { snapshot, error ->
+                if (error != null) {
+                    trySend(emptyList())
+                    return@addSnapshotListener
+                }
+                val docs = snapshot?.documents.orEmpty()
+                val list = docs.map { doc -> userNotificationFromDoc(doc) }
+                trySend(list)
             }
-            UserNotification(
-                id = doc.id,
-                title = doc.getString("title") ?: "",
-                message = doc.getString("message") ?: "",
-                createdAt = createdAt,
-                isRead = doc.getBoolean("isRead") ?: false,
-                targetTab = doc.getString("targetTab"),
-                targetLocationId = doc.getString("targetLocationId"),
-                type = doc.getString("type")
-            )
+        awaitClose { registration.remove() }
+    }
+
+    private fun userNotificationFromDoc(doc: com.google.firebase.firestore.DocumentSnapshot): UserNotification {
+        val createdAt = when (val raw = doc.get("createdAt")) {
+            is Number -> raw.toLong()
+            is Timestamp -> raw.toDate().time
+            else -> 0L
         }
+        return UserNotification(
+            id = doc.id,
+            title = doc.getString("title") ?: "",
+            message = doc.getString("message") ?: "",
+            createdAt = createdAt,
+            isRead = doc.getBoolean("isRead") ?: false,
+            targetTab = doc.getString("targetTab"),
+            targetLocationId = doc.getString("targetLocationId"),
+            type = doc.getString("type")
+        )
     }
 
     suspend fun addUserNotification(

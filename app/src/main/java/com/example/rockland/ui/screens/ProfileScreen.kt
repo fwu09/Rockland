@@ -54,14 +54,11 @@ import com.example.rockland.ui.theme.TextDark
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.rockland.presentation.viewmodel.UserViewModel
 import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.LaunchedEffect
-import kotlinx.coroutines.flow.collectLatest
-import com.example.rockland.ui.components.NotificationDialog
 import com.example.rockland.util.TimeFormatter
 import com.example.rockland.data.datasource.remote.ApplicationStatus
+import com.example.rockland.data.datasource.remote.ExpertApplication
 
 // Profile screen component
-@Suppress("AssignedValueNeverRead", "UNUSED_EXPRESSION")
 @Composable
 fun ProfileScreen(
     userViewModel: UserViewModel = viewModel(factory = UserViewModel.Factory()),
@@ -75,9 +72,9 @@ fun ProfileScreen(
     val effectiveUserData = vmUserData ?: userData
 
     val roleLabel = formatRoleLabel((effectiveUserData?.role).orEmpty().ifBlank { "nature_enthusiast" })
-    val isAdmin = (effectiveUserData?.role).orEmpty()
-        .trim()
-        .lowercase() in listOf("admin", "user_admin")
+    val normalizedRole = (effectiveUserData?.role).orEmpty().trim().lowercase()
+    val isAdmin = normalizedRole in listOf("admin", "user_admin")
+    val isVerifiedExpert = normalizedRole == "verified_expert"
     val points = effectiveUserData?.points ?: 0
     val missionsCompleted = effectiveUserData?.missionsCompleted ?: 0
     val achievementsCompleted = effectiveUserData?.achievementsCompleted ?: 0
@@ -93,19 +90,7 @@ fun ProfileScreen(
     var portfolioLink by remember { mutableStateOf("") }
     var notes by remember { mutableStateOf("") }
     var showExpertDialog by remember { mutableStateOf(false) }
-    var showSubmittedDialog by remember { mutableStateOf(false) }
     var showPendingDialog by remember { mutableStateOf(false) }
-
-
-    // popup for submission of expert application
-    LaunchedEffect(Unit) {
-        userViewModel.expertUiEvents.collectLatest { event ->
-            if (event is UserViewModel.ExpertUiEvent.Submitted) {
-                showSubmittedDialog = true
-                showPendingDialog = false
-            }
-        }
-    }
 
     Column(
         modifier = Modifier
@@ -304,55 +289,57 @@ fun ProfileScreen(
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        // Verified expert application entry
-        Card(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp),
-            colors = CardDefaults.cardColors(
-                containerColor = Color(0xFF1E1E1E)
-            ),
-            shape = RoundedCornerShape(16.dp)
-        ) {
-            Column(
+        // Verified expert application entry (hidden for verified experts and admins)
+        if (!isVerifiedExpert && !isAdmin) {
+            Card(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(16.dp)
+                    .padding(horizontal = 16.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = Color(0xFF1E1E1E)
+                ),
+                shape = RoundedCornerShape(16.dp)
             ) {
-                Text(
-                    text = "Are you a Verified Expert?",
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Color.White
-                )
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                Text(
-                    text = "Complete the application form to prove you are an expert and gain access to more permissions!",
-                    fontSize = 13.sp,
-                    color = Color.White.copy(alpha = 0.7f)
-                )
-
-                Spacer(modifier = Modifier.height(14.dp))
-
-                Button(
-                    onClick = {
-                        if (isPending) {
-                            showPendingDialog = true
-                        } else {
-                            showExpertDialog = true
-                        }
-                    },
-                    modifier = Modifier.align(Alignment.CenterHorizontally),
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE8D2B5)),
-                    shape = RoundedCornerShape(12.dp)
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp)
                 ) {
                     Text(
-                        text = applyButtonText,
-                        fontWeight = FontWeight.SemiBold,
-                        color = Color(0xFF1E1E1E)
+                        text = "Are you a Verified Expert?",
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White
                     )
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    Text(
+                        text = "Complete the application form to prove you are an expert and gain access to more permissions!",
+                        fontSize = 13.sp,
+                        color = Color.White.copy(alpha = 0.7f)
+                    )
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    Button(
+                        onClick = {
+                            if (isPending) {
+                                showPendingDialog = true
+                            } else {
+                                showExpertDialog = true
+                            }
+                        },
+                        modifier = Modifier.align(Alignment.CenterHorizontally),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE8D2B5)),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Text(
+                            text = applyButtonText,
+                            fontWeight = FontWeight.SemiBold,
+                            color = Color(0xFF1E1E1E)
+                        )
+                    }
                 }
             }
         }
@@ -381,15 +368,6 @@ fun ProfileScreen(
         Spacer(modifier = Modifier.height(56.dp))
     }
 
-    if (showSubmittedDialog) {
-        NotificationDialog(
-            title = "Application Sent",
-            message = "Your Verified Expert Application has been sent! Please give admins some time to verify your application.",
-            onDismiss = { showSubmittedDialog = false; },
-            isSuccess = true
-        )
-    }
-
     if (showExpertDialog) {
         VerifiedExpertDialog(
             fullName = applicationFullName,
@@ -397,12 +375,12 @@ fun ProfileScreen(
             yearsOfExp = yearsOfExp,
             portfolioLink = portfolioLink,
             notes = notes,
-            onFullNameChange = { applicationFullName = it; Unit },
-            onExpertiseChange = { expertise = it; Unit },
-            onYearsChange = { yearsOfExp = it; Unit },
-            onPortfolioChange = { portfolioLink = it; Unit },
-            onNotesChange = { notes = it; Unit },
-            onDismiss = { showExpertDialog = false; Unit },
+            onFullNameChange = { applicationFullName = it },
+            onExpertiseChange = { expertise = it },
+            onYearsChange = { yearsOfExp = it },
+            onPortfolioChange = { portfolioLink = it },
+            onNotesChange = { notes = it },
+            onDismiss = { showExpertDialog = false },
             onSubmit = {
                 userViewModel.submitExpertApplication(
                     fullName = applicationFullName,
@@ -411,29 +389,28 @@ fun ProfileScreen(
                     portfolioLink = portfolioLink,
                     notes = notes
                 )
-                showExpertDialog = false; Unit
+                showExpertDialog = false
             }
         )
     }
-    // if user has already sent an expert application, they will get a popup that shows information that has alr been submitted.
+    // If user has already sent an expert application, they can view the submitted details in a pending review dialog or open the form to edit and resubmit.
     if (showPendingDialog && expertApp != null) {
         val submittedAtText =
             expertApp.submittedAt?.toDate()?.time?.let(TimeFormatter::formatLocal) ?: "—"
 
-        NotificationDialog(
-            title = "Application Under Review",
-            message = """
-Your Verified Expert Application is undergoing verification! Please check again at a later time.
-
-Submitted details:
-• Full Name: ${expertApp.fullName}
-• Expertise: ${expertApp.expertise}
-• Years of Experience: ${expertApp.yearsOfExperience}
-• Portfolio: ${expertApp.portfolioLink}
-• Submitted at: $submittedAtText
-        """.trimIndent(),
-            onDismiss = { showPendingDialog = false; Unit },
-            isSuccess = true
+        PendingExpertApplicationDialog(
+            application = expertApp,
+            submittedAtText = submittedAtText,
+            onDismiss = { showPendingDialog = false },
+            onEdit = {
+                applicationFullName = expertApp.fullName.ifBlank { applicationFullName }
+                expertise = expertApp.expertise
+                yearsOfExp = expertApp.yearsOfExperience
+                portfolioLink = expertApp.portfolioLink
+                notes = expertApp.notes
+                showPendingDialog = false
+                showExpertDialog = true
+            }
         )
     }
 }
@@ -589,6 +566,101 @@ private fun VerifiedExpertDialog(
                 }
             }
         }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun PendingExpertApplicationDialog(
+    application: ExpertApplication,
+    submittedAtText: String,
+    onDismiss: () -> Unit,
+    onEdit: () -> Unit
+) {
+    BasicAlertDialog(onDismissRequest = onDismiss) {
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(16.dp),
+            colors = CardDefaults.cardColors(containerColor = Color.White)
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp)
+            ) {
+                Text(
+                    text = "Application Under Review",
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = TextDark
+                )
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                Text(
+                    text = "Your verified expert application is currently being reviewed by admins. Here are your submitted details.",
+                    fontSize = 14.sp,
+                    color = TextDark.copy(alpha = 0.8f)
+                )
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                ApplicationDetailRow(label = "Full Name", value = application.fullName)
+                ApplicationDetailRow(label = "Expertise", value = application.expertise)
+                ApplicationDetailRow(label = "Years of experience", value = application.yearsOfExperience)
+                ApplicationDetailRow(label = "Portfolio", value = application.portfolioLink)
+                ApplicationDetailRow(label = "Notes for admin", value = application.notes.ifBlank { "—" })
+                ApplicationDetailRow(label = "Submitted at", value = submittedAtText)
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Button(
+                        onClick = onEdit,
+                        modifier = Modifier.weight(1f),
+                        colors = ButtonDefaults.buttonColors(containerColor = Rock1),
+                        shape = RoundedCornerShape(10.dp)
+                    ) {
+                        Text(text = "Edit")
+                    }
+                    Button(
+                        onClick = onDismiss,
+                        modifier = Modifier.weight(1f),
+                        colors = ButtonDefaults.buttonColors(containerColor = Rock1),
+                        shape = RoundedCornerShape(10.dp)
+                    ) {
+                        Text(text = "Close")
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ApplicationDetailRow(
+    label: String,
+    value: String
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp)
+    ) {
+        Text(
+            text = label,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = TextDark.copy(alpha = 0.7f)
+        )
+        Text(
+            text = value,
+            fontSize = 14.sp,
+            color = TextDark
+        )
     }
 }
 
