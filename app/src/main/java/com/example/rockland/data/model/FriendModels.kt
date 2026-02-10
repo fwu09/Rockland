@@ -16,7 +16,9 @@ data class FriendRequest(
     val toUserId: String,
     val fromDisplayName: String = "",
     val toDisplayName: String = "",
-    val createdAtMillis: Long = 0L
+    val createdAtMillis: Long = 0L,
+    val fromProfilePictureUrl: String = "",
+    val toProfilePictureUrl: String = ""
 )
 
 /** Friend relation (mutual). */

@@ -121,17 +121,24 @@ class FirestoreFriendsRepository(
             .whereEqualTo("fromUserId", userId)
             .whereEqualTo("status", "pending")
             .addSnapshotListener { snap, _ ->
-                val list = snap?.documents.orEmpty().map { d ->
-                    FriendRequest(
-                        id = d.id,
-                        fromUserId = d.getString("fromUserId").orEmpty(),
-                        toUserId = d.getString("toUserId").orEmpty(),
-                        fromDisplayName = d.getString("fromDisplayName").orEmpty(),
-                        toDisplayName = d.getString("toDisplayName").orEmpty(),
-                        createdAtMillis = (d.getLong("createdAtMillis") ?: 0L)
-                    )
+                val docs = snap?.documents.orEmpty()
+                launch {
+                    val list = docs.map { d ->
+                        val toId = d.getString("toUserId").orEmpty()
+                        val profile = runCatching { usersRef.document(toId).get().await() }.getOrNull()
+                        val toAvatar = profile?.getString("profilePictureUrl").orEmpty()
+                        FriendRequest(
+                            id = d.id,
+                            fromUserId = d.getString("fromUserId").orEmpty(),
+                            toUserId = toId,
+                            fromDisplayName = d.getString("fromDisplayName").orEmpty(),
+                            toDisplayName = d.getString("toDisplayName").orEmpty(),
+                            createdAtMillis = (d.getLong("createdAtMillis") ?: 0L),
+                            toProfilePictureUrl = toAvatar
+                        )
+                    }
+                    trySend(list)
                 }
-                trySend(list)
             }
         awaitClose { reg.remove() }
     }
@@ -141,17 +148,24 @@ class FirestoreFriendsRepository(
             .whereEqualTo("toUserId", userId)
             .whereEqualTo("status", "pending")
             .addSnapshotListener { snap, _ ->
-                val list = snap?.documents.orEmpty().map { d ->
-                    FriendRequest(
-                        id = d.id,
-                        fromUserId = d.getString("fromUserId").orEmpty(),
-                        toUserId = d.getString("toUserId").orEmpty(),
-                        fromDisplayName = d.getString("fromDisplayName").orEmpty(),
-                        toDisplayName = d.getString("toDisplayName").orEmpty(),
-                        createdAtMillis = (d.getLong("createdAtMillis") ?: 0L)
-                    )
+                val docs = snap?.documents.orEmpty()
+                launch {
+                    val list = docs.map { d ->
+                        val fromId = d.getString("fromUserId").orEmpty()
+                        val profile = runCatching { usersRef.document(fromId).get().await() }.getOrNull()
+                        val fromAvatar = profile?.getString("profilePictureUrl").orEmpty()
+                        FriendRequest(
+                            id = d.id,
+                            fromUserId = fromId,
+                            toUserId = d.getString("toUserId").orEmpty(),
+                            fromDisplayName = d.getString("fromDisplayName").orEmpty(),
+                            toDisplayName = d.getString("toDisplayName").orEmpty(),
+                            createdAtMillis = (d.getLong("createdAtMillis") ?: 0L),
+                            fromProfilePictureUrl = fromAvatar
+                        )
+                    }
+                    trySend(list)
                 }
-                trySend(list)
             }
         awaitClose { reg.remove() }
     }
