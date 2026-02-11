@@ -18,7 +18,6 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.Divider
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -314,7 +313,7 @@ private fun InventoryCards(
                     }
 
                     Spacer(Modifier.height(10.dp))
-                    Divider(color = Color(0xFFEAEAEA))
+                    HorizontalDivider(color = Color(0xFFEAEAEA))
                     Spacer(Modifier.height(10.dp))
 
                     val canOpen = item.count > 0 && !opening
