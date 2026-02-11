@@ -609,7 +609,13 @@ private fun IdentifierResultScreen(
     imageUri: Uri,
     rockName: String,
     confidence: Float,
-    onScanAgain: () -> Unit
+    onScanAgain: () -> Unit,
+
+    // ✅ added back (optional actions)
+    onViewRockInfo: (rockName: String) -> Unit = {},
+    onSaveToCollection: (rockName: String, imageUri: Uri, confidence: Float) -> Unit = { _, _, _ -> },
+    onShareResult: (rockName: String, confidencePercent: Int) -> Unit = { _, _ -> },
+    onReportWrongResult: (rockName: String) -> Unit = {}
 ) {
     val percent = (confidence * 100f).coerceIn(0f, 100f).roundToInt()
 
@@ -629,7 +635,29 @@ private fun IdentifierResultScreen(
             elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
         ) {
             Column(modifier = Modifier.padding(14.dp)) {
-                Text("Result", fontWeight = FontWeight.SemiBold, color = TextDark)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("Result", fontWeight = FontWeight.SemiBold, color = TextDark)
+
+                    // small confidence pill
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(999.dp))
+                            .background(Rock3.copy(alpha = 0.12f))
+                            .padding(horizontal = 10.dp, vertical = 6.dp)
+                    ) {
+                        Text(
+                            text = "$percent%",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = TextDark
+                        )
+                    }
+                }
+
                 Spacer(Modifier.height(10.dp))
 
                 Box(
@@ -678,12 +706,65 @@ private fun IdentifierResultScreen(
                     color = TextDark.copy(alpha = 0.75f),
                     lineHeight = 18.sp
                 )
+
+                Spacer(Modifier.height(14.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    OutlinedButton(
+                        onClick = { onViewRockInfo(rockName) },
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(14.dp)
+                    ) {
+                        Text("View Info", fontWeight = FontWeight.SemiBold, color = TextDark)
+                    }
+
+                    OutlinedButton(
+                        onClick = { onShareResult(rockName, percent) },
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(14.dp)
+                    ) {
+                        Text("Share", fontWeight = FontWeight.SemiBold, color = TextDark)
+                    }
+                }
+
+                Spacer(Modifier.height(10.dp))
+
+                Button(
+                    onClick = { onSaveToCollection(rockName, imageUri, confidence) },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(50.dp),
+                    shape = RoundedCornerShape(14.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = Rock3)
+                ) {
+                    Text("Save to Collection", fontWeight = FontWeight.SemiBold, color = Color.White)
+                }
+
+                Spacer(Modifier.height(6.dp))
+
+                // ✅ added back: report button (text-style)
+                TextButton(
+                    onClick = { onReportWrongResult(rockName) },
+                    modifier = Modifier.align(Alignment.End)
+                ) {
+                    Text(
+                        "Report wrong result",
+                        color = Color(0xFF8B2E2E),
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
             }
         }
 
+        // ✅ keep Scan Again as main CTA at bottom
         Button(
             onClick = onScanAgain,
-            modifier = Modifier.fillMaxWidth().height(56.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(56.dp),
             shape = RoundedCornerShape(14.dp),
             colors = ButtonDefaults.buttonColors(containerColor = Rock1)
         ) {
@@ -691,6 +772,7 @@ private fun IdentifierResultScreen(
         }
     }
 }
+
 
 private fun saveBitmapToMediaStore(context: Context, bitmap: Bitmap): Uri? {
     val contentValues = ContentValues().apply {

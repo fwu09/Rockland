@@ -1,5 +1,6 @@
 // Screen presenting the user's profile stats and navigation actions.
 package com.example.rockland.ui.screens
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -9,8 +10,10 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -18,18 +21,28 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.AdminPanelSettings
+import androidx.compose.material.icons.filled.Badge
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Link
+import androidx.compose.material.icons.filled.Logout
+import androidx.compose.material.icons.filled.PendingActions
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Verified
 import androidx.compose.material3.BasicAlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -38,25 +51,26 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
 import com.example.rockland.R
+import com.example.rockland.data.datasource.remote.ApplicationStatus
+import com.example.rockland.data.datasource.remote.ExpertApplication
 import com.example.rockland.data.datasource.remote.UserData
+import com.example.rockland.presentation.viewmodel.UserViewModel
+import com.example.rockland.ui.theme.BackgroundLight
 import com.example.rockland.ui.theme.Rock1
 import com.example.rockland.ui.theme.Rock3
 import com.example.rockland.ui.theme.TextDark
-import androidx.lifecycle.viewmodel.compose.viewModel
-import com.example.rockland.presentation.viewmodel.UserViewModel
-import androidx.compose.runtime.collectAsState
 import com.example.rockland.util.TimeFormatter
-import com.example.rockland.data.datasource.remote.ApplicationStatus
-import com.example.rockland.data.datasource.remote.ExpertApplication
 
 // Profile screen component
 @Composable
@@ -67,7 +81,6 @@ fun ProfileScreen(
     onLogoutClick: () -> Unit = {},
     onBackClick: () -> Unit = {}
 ) {
-
     val vmUserData by userViewModel.userData.collectAsState()
     val effectiveUserData = vmUserData ?: userData
 
@@ -75,11 +88,14 @@ fun ProfileScreen(
     val normalizedRole = (effectiveUserData?.role).orEmpty().trim().lowercase()
     val isAdmin = normalizedRole in listOf("admin", "user_admin")
     val isVerifiedExpert = normalizedRole == "verified_expert"
+
     val points = effectiveUserData?.points ?: 0
     val missionsCompleted = effectiveUserData?.missionsCompleted ?: 0
     val achievementsCompleted = effectiveUserData?.achievementsCompleted ?: 0
+
     val profileName =
-        "${effectiveUserData?.firstName.orEmpty()} ${effectiveUserData?.lastName.orEmpty()}".trim()
+        "${effectiveUserData?.firstName.orEmpty()} ${effectiveUserData?.lastName.orEmpty()}".trim().ifBlank { "RockLand User" }
+
     val expertApp = effectiveUserData?.expertApplication
     val isPending = (expertApp?.statusEnum) == ApplicationStatus.PENDING
     val applyButtonText = if (isPending) "View Application" else "Apply"
@@ -92,17 +108,27 @@ fun ProfileScreen(
     var showExpertDialog by remember { mutableStateOf(false) }
     var showPendingDialog by remember { mutableStateOf(false) }
 
+    val bg = Brush.verticalGradient(
+        colors = listOf(
+            BackgroundLight,
+            Rock3.copy(alpha = 0.08f),
+            BackgroundLight
+        )
+    )
+
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFFF5F5F5))
+            .background(bg)
             .verticalScroll(rememberScrollState())
+            .imePadding()
+            .padding(bottom = 56.dp)
     ) {
-        // Top bar with back button, title and settings button
+        // Top bar
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 8.dp, vertical = 8.dp),
+                .padding(horizontal = 10.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
@@ -110,7 +136,8 @@ fun ProfileScreen(
                 IconButton(onClick = onBackClick) {
                     Icon(
                         imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                        contentDescription = "Back"
+                        contentDescription = "Back",
+                        tint = TextDark
                     )
                 }
                 Text(
@@ -130,32 +157,27 @@ fun ProfileScreen(
             }
         }
 
-        Spacer(modifier = Modifier.height(8.dp))
-
-        // Profile header
+        // Header card
         Card(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp)
-                .shadow(8.dp, RoundedCornerShape(16.dp)),
-            colors = CardDefaults.cardColors(
-                containerColor = Rock1.copy(alpha = 0.18f)
-            ),
-            shape = RoundedCornerShape(16.dp)
+                .shadow(6.dp, RoundedCornerShape(20.dp)),
+            colors = CardDefaults.cardColors(containerColor = Color.White),
+            shape = RoundedCornerShape(20.dp)
         ) {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 28.dp),
+                    .padding(horizontal = 16.dp, vertical = 18.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                // Profile photo
+                // Avatar + role badge
                 Box(
                     modifier = Modifier
-                        .size(100.dp)
+                        .size(98.dp)
                         .clip(CircleShape)
-                        .background(Rock3)
-                        .shadow(4.dp, CircleShape),
+                        .background(Rock3.copy(alpha = 0.35f)),
                     contentAlignment = Alignment.Center
                 ) {
                     val profilePicUrl = effectiveUserData?.profilePictureUrl.orEmpty()
@@ -170,9 +192,9 @@ fun ProfileScreen(
                         val initials =
                             "${effectiveUserData?.firstName?.firstOrNull() ?: ""}${effectiveUserData?.lastName?.firstOrNull() ?: ""}"
                         Text(
-                            text = initials.ifBlank { "?" },
-                            fontSize = 32.sp,
-                            fontWeight = FontWeight.Bold,
+                            text = initials.ifBlank { "?" }.uppercase(),
+                            fontSize = 30.sp,
+                            fontWeight = FontWeight.ExtraBold,
                             color = TextDark
                         )
                     }
@@ -180,10 +202,9 @@ fun ProfileScreen(
 
                 Spacer(modifier = Modifier.height(12.dp))
 
-                // User name
                 Text(
                     text = profileName,
-                    fontSize = 24.sp,
+                    fontSize = 22.sp,
                     fontWeight = FontWeight.ExtraBold,
                     color = TextDark,
                     textAlign = TextAlign.Center,
@@ -192,180 +213,169 @@ fun ProfileScreen(
 
                 Spacer(modifier = Modifier.height(6.dp))
 
-                Box(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(Rock1.copy(alpha = 0.2f))
-                        .padding(horizontal = 12.dp, vertical = 4.dp)
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        if (isAdmin) {
-                            Icon(
-                                imageVector = Icons.Default.AdminPanelSettings,
-                                contentDescription = "Admin",
-                                tint = Rock1,
-                                modifier = Modifier.size(14.dp)
-                            )
-                        }
-                        Text(
-                            text = roleLabel,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = TextDark
-                        )
-                    }
-                }
+                // Role chip
+                RoleChip(
+                    label = roleLabel,
+                    isAdmin = isAdmin,
+                    isVerifiedExpert = isVerifiedExpert
+                )
 
-                // Join date
+                Spacer(modifier = Modifier.height(10.dp))
+
                 Text(
-                    text = "${stringResource(R.string.joined)} ${effectiveUserData?.joinDate ?: ""}",
-                    fontSize = 14.sp,
+                    text = "${stringResource(R.string.joined)} ${effectiveUserData?.joinDate ?: "—"}",
+                    fontSize = 13.sp,
                     color = TextDark.copy(alpha = 0.7f)
                 )
             }
         }
 
-        Spacer(modifier = Modifier.height(16.dp))
+        Spacer(modifier = Modifier.height(14.dp))
 
-        // Gamification summary
+        // Stats grid
         Card(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp),
-            colors = CardDefaults.cardColors(
-                containerColor = Rock1.copy(alpha = 0.12f)
-            ),
-            shape = RoundedCornerShape(16.dp)
+            colors = CardDefaults.cardColors(containerColor = Color.White),
+            shape = RoundedCornerShape(20.dp),
+            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
         ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(16.dp)
-            ) {
+            Column(modifier = Modifier.padding(16.dp)) {
                 Text(
                     text = "Progress Overview",
-                    fontSize = 18.sp,
+                    fontSize = 16.sp,
                     fontWeight = FontWeight.Bold,
                     color = TextDark
                 )
 
                 Spacer(modifier = Modifier.height(12.dp))
 
-                SummaryStatItem(
+                Row(
                     modifier = Modifier.fillMaxWidth(),
-                    value = if (isAdmin) "All" else points.toString(),
-                    label = "Points"
-                )
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    StatTile(
+                        modifier = Modifier.weight(1f),
+                        value = if (isAdmin) "All" else points.toString(),
+                        label = "Points"
+                    )
+                    StatTile(
+                        modifier = Modifier.weight(1f),
+                        value = if (isAdmin) "All" else achievementsCompleted.toString(),
+                        label = "Achievements"
+                    )
+                }
 
                 Spacer(modifier = Modifier.height(10.dp))
 
-                SummaryStatItem(
+                Row(
                     modifier = Modifier.fillMaxWidth(),
-                    value = if (isAdmin) "All" else achievementsCompleted.toString(),
-                    label = "Achievements"
-                )
-
-                Spacer(modifier = Modifier.height(10.dp))
-
-                SummaryStatItem(
-                    modifier = Modifier.fillMaxWidth(),
-                    value = if (isAdmin) "All" else missionsCompleted.toString(),
-                    label = "Missions"
-                )
-
-                if (isAdmin) {
-                    Spacer(modifier = Modifier.height(10.dp))
-                    SummaryStatItem(
-                        modifier = Modifier.fillMaxWidth(),
-                        value = "All",
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    StatTile(
+                        modifier = Modifier.weight(1f),
+                        value = if (isAdmin) "All" else missionsCompleted.toString(),
+                        label = "Missions"
+                    )
+                    StatTile(
+                        modifier = Modifier.weight(1f),
+                        value = if (isAdmin) "All" else "—",
                         label = "Rocks Collected"
                     )
                 }
             }
         }
 
-        Spacer(modifier = Modifier.height(16.dp))
+        Spacer(modifier = Modifier.height(14.dp))
 
-        // Verified expert application entry (hidden for verified experts and admins)
+        // Verified expert section (hidden for verified experts and admins)
         if (!isVerifiedExpert && !isAdmin) {
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp),
-                colors = CardDefaults.cardColors(
-                    containerColor = Color(0xFF1E1E1E)
-                ),
-                shape = RoundedCornerShape(16.dp)
+                colors = CardDefaults.cardColors(containerColor = Color(0xFF141414)),
+                shape = RoundedCornerShape(20.dp)
             ) {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(16.dp)
                 ) {
-                    Text(
-                        text = "Are you a Verified Expert?",
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color.White
-                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = if (isPending) Icons.Default.PendingActions else Icons.Default.Verified,
+                            contentDescription = null,
+                            tint = Color(0xFFE8D2B5),
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            text = "Verified Expert",
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White
+                        )
+                    }
 
-                    Spacer(modifier = Modifier.height(8.dp))
+                    Spacer(modifier = Modifier.height(6.dp))
 
                     Text(
-                        text = "Complete the application form to prove you are an expert and gain access to more permissions!",
+                        text = if (isPending)
+                            "Your application is under review. You can view or edit your submitted details."
+                        else
+                            "Prove your expertise to unlock extra permissions for Rock Dictionary contributions.",
                         fontSize = 13.sp,
-                        color = Color.White.copy(alpha = 0.7f)
+                        color = Color.White.copy(alpha = 0.75f)
                     )
 
                     Spacer(modifier = Modifier.height(14.dp))
 
                     Button(
                         onClick = {
-                            if (isPending) {
-                                showPendingDialog = true
-                            } else {
-                                showExpertDialog = true
-                            }
+                            if (isPending) showPendingDialog = true else showExpertDialog = true
                         },
-                        modifier = Modifier.align(Alignment.CenterHorizontally),
+                        modifier = Modifier.fillMaxWidth(),
                         colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE8D2B5)),
-                        shape = RoundedCornerShape(12.dp)
+                        shape = RoundedCornerShape(14.dp)
                     ) {
                         Text(
                             text = applyButtonText,
-                            fontWeight = FontWeight.SemiBold,
+                            fontWeight = FontWeight.Bold,
                             color = Color(0xFF1E1E1E)
                         )
                     }
                 }
             }
+
+            Spacer(modifier = Modifier.height(14.dp))
         }
 
-        Spacer(modifier = Modifier.height(16.dp))
-
-        // Logout button
+        // Logout (softer styling but clear)
         Button(
             onClick = onLogoutClick,
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp)
-                .height(50.dp),
-            colors = ButtonDefaults.buttonColors(
-                containerColor = Color(0xFFF44336)
-            ),
-            shape = RoundedCornerShape(25.dp)
+                .height(52.dp),
+            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFFE7E7)),
+            shape = RoundedCornerShape(16.dp)
         ) {
+            Icon(
+                imageVector = Icons.Default.Logout,
+                contentDescription = null,
+                tint = Color(0xFFB00020),
+                modifier = Modifier.size(18.dp)
+            )
+            Spacer(modifier = Modifier.width(10.dp))
             Text(
                 text = stringResource(R.string.logout),
-                fontSize = 16.sp,
-                fontWeight = FontWeight.Medium
+                fontSize = 15.sp,
+                fontWeight = FontWeight.Bold,
+                color = Color(0xFFB00020)
             )
         }
-
-        Spacer(modifier = Modifier.height(56.dp))
     }
 
     if (showExpertDialog) {
@@ -393,7 +403,7 @@ fun ProfileScreen(
             }
         )
     }
-    // If user has already sent an expert application, they can view the submitted details in a pending review dialog or open the form to edit and resubmit.
+
     if (showPendingDialog && expertApp != null) {
         val submittedAtText =
             expertApp.submittedAt?.toDate()?.time?.let(TimeFormatter::formatLocal) ?: "—"
@@ -415,33 +425,98 @@ fun ProfileScreen(
     }
 }
 
-    @Composable
-private fun SummaryStatItem(
+@Composable
+private fun RoleChip(
+    label: String,
+    isAdmin: Boolean,
+    isVerifiedExpert: Boolean
+) {
+    val chipBg = when {
+        isAdmin -> Color(0xFFE9F2FF)
+        isVerifiedExpert -> Color(0xFFE9FFF1)
+        else -> Rock1.copy(alpha = 0.14f)
+    }
+    val chipFg = when {
+        isAdmin -> Color(0xFF1565C0)
+        isVerifiedExpert -> Color(0xFF2E7D32)
+        else -> TextDark
+    }
+
+    Box(
+        modifier = Modifier
+            .clip(RoundedCornerShape(999.dp))
+            .background(chipBg)
+            .padding(horizontal = 12.dp, vertical = 6.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            if (isAdmin) {
+                Icon(
+                    imageVector = Icons.Default.AdminPanelSettings,
+                    contentDescription = null,
+                    tint = chipFg,
+                    modifier = Modifier.size(14.dp)
+                )
+                Spacer(Modifier.width(6.dp))
+            } else if (isVerifiedExpert) {
+                Icon(
+                    imageVector = Icons.Default.Verified,
+                    contentDescription = null,
+                    tint = chipFg,
+                    modifier = Modifier.size(14.dp)
+                )
+                Spacer(Modifier.width(6.dp))
+            } else {
+                Icon(
+                    imageVector = Icons.Default.Badge,
+                    contentDescription = null,
+                    tint = chipFg,
+                    modifier = Modifier.size(14.dp)
+                )
+                Spacer(Modifier.width(6.dp))
+            }
+
+            Text(
+                text = label,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = chipFg
+            )
+        }
+    }
+}
+
+@Composable
+private fun StatTile(
     modifier: Modifier = Modifier,
     value: String,
     label: String
 ) {
-    Column(
-        modifier = modifier
-            .clip(RoundedCornerShape(12.dp))
-            .background(Color.White)
-            .padding(vertical = 10.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
+    Card(
+        modifier = modifier,
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = Rock1.copy(alpha = 0.10f))
     ) {
-        Text(
-            text = value,
-            fontSize = 18.sp,
-            fontWeight = FontWeight.Bold,
-            color = TextDark
-        )
-        Text(
-            text = label,
-            fontSize = 12.sp,
-            color = TextDark.copy(alpha = 0.7f)
-        )
-
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 14.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text(
+                text = value,
+                fontSize = 18.sp,
+                fontWeight = FontWeight.ExtraBold,
+                color = TextDark
+            )
+            Spacer(Modifier.height(2.dp))
+            Text(
+                text = label,
+                fontSize = 12.sp,
+                color = TextDark.copy(alpha = 0.72f),
+                textAlign = TextAlign.Center
+            )
+        }
     }
-
 }
 
 private fun formatRoleLabel(role: String): String {
@@ -473,13 +548,20 @@ private fun VerifiedExpertDialog(
     val expertiseError = expertise.isBlank()
     val yearsError = yearsOfExp.isBlank() || yearsOfExp.toIntOrNull() == null
     val portfolioError = portfolioLink.isBlank()
-
     val isFormValid = !fullNameError && !expertiseError && !yearsError && !portfolioError
+
+    val tfColors = OutlinedTextFieldDefaults.colors(
+        focusedBorderColor = Rock1,
+        unfocusedBorderColor = TextDark.copy(alpha = 0.25f),
+        focusedLabelColor = Rock1,
+        unfocusedLabelColor = TextDark.copy(alpha = 0.55f),
+        cursorColor = Rock1
+    )
 
     BasicAlertDialog(onDismissRequest = onDismiss) {
         Card(
             modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(16.dp),
+            shape = RoundedCornerShape(18.dp),
             colors = CardDefaults.cardColors(containerColor = Color.White)
         ) {
             Column(
@@ -494,7 +576,14 @@ private fun VerifiedExpertDialog(
                     color = TextDark
                 )
 
-                Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(10.dp))
+                Text(
+                    text = "Fill in the required fields so admins can verify your credentials.",
+                    fontSize = 13.sp,
+                    color = TextDark.copy(alpha = 0.72f)
+                )
+
+                Spacer(modifier = Modifier.height(14.dp))
 
                 OutlinedTextField(
                     value = fullName,
@@ -502,7 +591,8 @@ private fun VerifiedExpertDialog(
                     label = { Text("Full Name (Required)") },
                     isError = fullNameError,
                     modifier = Modifier.fillMaxWidth(),
-                    supportingText = { if (fullNameError) Text("Required") }
+                    supportingText = { if (fullNameError) Text("Required") },
+                    colors = tfColors
                 )
 
                 Spacer(modifier = Modifier.height(8.dp))
@@ -513,7 +603,8 @@ private fun VerifiedExpertDialog(
                     label = { Text("Area of Expertise (Required)") },
                     isError = expertiseError,
                     modifier = Modifier.fillMaxWidth(),
-                    supportingText = { if (expertiseError) Text("Required") }
+                    supportingText = { if (expertiseError) Text("Required") },
+                    colors = tfColors
                 )
 
                 Spacer(modifier = Modifier.height(8.dp))
@@ -526,7 +617,8 @@ private fun VerifiedExpertDialog(
                     modifier = Modifier.fillMaxWidth(),
                     supportingText = {
                         if (yearsError) Text(if (yearsOfExp.isBlank()) "Required" else "Must be a number")
-                    }
+                    },
+                    colors = tfColors
                 )
 
                 Spacer(modifier = Modifier.height(8.dp))
@@ -537,7 +629,11 @@ private fun VerifiedExpertDialog(
                     label = { Text("Portfolio Link (Required)") },
                     isError = portfolioError,
                     modifier = Modifier.fillMaxWidth(),
-                    supportingText = { if (portfolioError) Text("Required") }
+                    supportingText = { if (portfolioError) Text("Required") },
+                    colors = tfColors,
+                    trailingIcon = {
+                        Icon(imageVector = Icons.Default.Link, contentDescription = null, tint = Rock1)
+                    }
                 )
 
                 Spacer(modifier = Modifier.height(8.dp))
@@ -546,22 +642,32 @@ private fun VerifiedExpertDialog(
                     value = notes,
                     onValueChange = onNotesChange,
                     label = { Text("Notes for admin (optional)") },
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = tfColors,
+                    minLines = 2
                 )
 
+                Spacer(modifier = Modifier.height(14.dp))
+                HorizontalDivider(color = Color(0xFFEEEEEE))
                 Spacer(modifier = Modifier.height(12.dp))
 
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.End
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
+                    TextButton(
+                        onClick = onDismiss,
+                        modifier = Modifier.weight(1f)
+                    ) { Text("Cancel", color = TextDark) }
+
                     Button(
                         onClick = onSubmit,
+                        modifier = Modifier.weight(1f),
                         colors = ButtonDefaults.buttonColors(containerColor = Rock1),
-                        shape = RoundedCornerShape(10.dp),
-                        enabled = isFormValid,
+                        shape = RoundedCornerShape(14.dp),
+                        enabled = isFormValid
                     ) {
-                        Text("Submit")
+                        Text("Submit", fontWeight = FontWeight.Bold)
                     }
                 }
             }
@@ -580,7 +686,7 @@ private fun PendingExpertApplicationDialog(
     BasicAlertDialog(onDismissRequest = onDismiss) {
         Card(
             modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(16.dp),
+            shape = RoundedCornerShape(18.dp),
             colors = CardDefaults.cardColors(containerColor = Color.White)
         ) {
             Column(
@@ -588,18 +694,27 @@ private fun PendingExpertApplicationDialog(
                     .fillMaxWidth()
                     .padding(16.dp)
             ) {
-                Text(
-                    text = "Application Under Review",
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = TextDark
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Default.PendingActions,
+                        contentDescription = null,
+                        tint = Rock1,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        text = "Application Under Review",
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = TextDark
+                    )
+                }
 
                 Spacer(modifier = Modifier.height(8.dp))
 
                 Text(
-                    text = "Your verified expert application is currently being reviewed by admins. Here are your submitted details.",
-                    fontSize = 14.sp,
+                    text = "Admins are reviewing your submission. You can edit and resubmit if needed.",
+                    fontSize = 13.sp,
                     color = TextDark.copy(alpha = 0.8f)
                 )
 
@@ -612,27 +727,32 @@ private fun PendingExpertApplicationDialog(
                 ApplicationDetailRow(label = "Notes for admin", value = application.notes.ifBlank { "—" })
                 ApplicationDetailRow(label = "Submitted at", value = submittedAtText)
 
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(14.dp))
+                HorizontalDivider(color = Color(0xFFEEEEEE))
+                Spacer(modifier = Modifier.height(12.dp))
 
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     Button(
                         onClick = onEdit,
                         modifier = Modifier.weight(1f),
                         colors = ButtonDefaults.buttonColors(containerColor = Rock1),
-                        shape = RoundedCornerShape(10.dp)
+                        shape = RoundedCornerShape(14.dp)
                     ) {
-                        Text(text = "Edit")
+                        Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text(text = "Edit", fontWeight = FontWeight.Bold)
                     }
+
                     Button(
                         onClick = onDismiss,
                         modifier = Modifier.weight(1f),
-                        colors = ButtonDefaults.buttonColors(containerColor = Rock1),
-                        shape = RoundedCornerShape(10.dp)
+                        colors = ButtonDefaults.buttonColors(containerColor = Rock1.copy(alpha = 0.14f), contentColor = TextDark),
+                        shape = RoundedCornerShape(14.dp)
                     ) {
-                        Text(text = "Close")
+                        Text(text = "Close", fontWeight = FontWeight.Bold, color = TextDark)
                     }
                 }
             }
@@ -648,13 +768,13 @@ private fun ApplicationDetailRow(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 4.dp)
+            .padding(vertical = 6.dp)
     ) {
         Text(
             text = label,
             fontSize = 12.sp,
             fontWeight = FontWeight.SemiBold,
-            color = TextDark.copy(alpha = 0.7f)
+            color = TextDark.copy(alpha = 0.65f)
         )
         Text(
             text = value,
@@ -663,4 +783,3 @@ private fun ApplicationDetailRow(
         )
     }
 }
-
