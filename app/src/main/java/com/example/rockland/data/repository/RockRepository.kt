@@ -8,7 +8,6 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.tasks.await
 
-// Simple repository that reads rock metadata from Firestore.
 data class Rock(
     val rockID: Int = 0,
     val rockName: String = "",
@@ -16,10 +15,8 @@ data class Rock(
     val rockLocation: String = "",
     val rockDesc: String = "",
 
-    // from Firestore (e.g. "shale.jpg" or "shale.png")
     val rockImageName: String = "",
 
-    // used by UI (filled in by repository)
     val rockImageUrl: String = ""
 )
 
@@ -41,7 +38,6 @@ class RockRepository {
         if (rock.rockImageName.isBlank()) return rock
 
         return try {
-            // ✅ If your Storage folder is actually "rocks/" (plural), change here.
             val path = "rock/${rock.rockImageName}"
             Log.d("ROCKIMG", "Resolving storage path=$path")
 
@@ -57,7 +53,6 @@ class RockRepository {
 
     suspend fun getRockByName(rockName: String): Rock? {
         val snapshot = db.collection("rock")
-            // ✅ If your Firestore field is stored as "rockname" or something else, change here.
             .whereEqualTo("rockName", rockName)
             .limit(1)
             .get()
@@ -82,14 +77,12 @@ class RockRepository {
         val snapshot = db.collection("rock").get().await()
         val rocks = snapshot.documents.mapNotNull { it.toObject(Rock::class.java) }
 
-        // Resolve URLs in parallel (faster)
         return coroutineScope {
             rocks.map { r -> async { withResolvedImageUrl(r) ?: r } }.awaitAll()
         }
     }
 
     suspend fun hasActiveDependencies(rockId: Int): Boolean {
-        // Prefer new explicit rockId field on missions/achievements; fall back to legacy rockID if present.
         val missionByRockId = db.collection("missions")
             .whereEqualTo("rockId", rockId)
             .limit(1)

@@ -1,4 +1,3 @@
-// Screen presenting the user's profile stats and navigation actions.
 package com.example.rockland.ui.screens
 
 import androidx.compose.foundation.background
@@ -72,7 +71,6 @@ import com.example.rockland.ui.theme.Rock3
 import com.example.rockland.ui.theme.TextDark
 import com.example.rockland.util.TimeFormatter
 
-// Profile screen component
 @Composable
 fun ProfileScreen(
     userViewModel: UserViewModel = viewModel(factory = UserViewModel.Factory()),
@@ -124,7 +122,6 @@ fun ProfileScreen(
             .imePadding()
             .padding(bottom = 56.dp)
     ) {
-        // Top bar
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -157,7 +154,6 @@ fun ProfileScreen(
             }
         }
 
-        // Header card
         Card(
             modifier = Modifier
                 .fillMaxWidth()
@@ -172,7 +168,6 @@ fun ProfileScreen(
                     .padding(horizontal = 16.dp, vertical = 18.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                // Avatar + role badge
                 Box(
                     modifier = Modifier
                         .size(98.dp)
@@ -213,7 +208,6 @@ fun ProfileScreen(
 
                 Spacer(modifier = Modifier.height(6.dp))
 
-                // Role chip
                 RoleChip(
                     label = roleLabel,
                     isAdmin = isAdmin,
@@ -232,7 +226,6 @@ fun ProfileScreen(
 
         Spacer(modifier = Modifier.height(14.dp))
 
-        // Stats grid
         Card(
             modifier = Modifier
                 .fillMaxWidth()
@@ -289,7 +282,6 @@ fun ProfileScreen(
 
         Spacer(modifier = Modifier.height(14.dp))
 
-        // Verified expert section (hidden for verified experts and admins)
         if (!isVerifiedExpert && !isAdmin) {
             Card(
                 modifier = Modifier
@@ -352,7 +344,6 @@ fun ProfileScreen(
             Spacer(modifier = Modifier.height(14.dp))
         }
 
-        // Logout (softer styling but clear)
         Button(
             onClick = onLogoutClick,
             modifier = Modifier

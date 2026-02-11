@@ -1,4 +1,3 @@
-// Hosts the collection and dictionary tabs while forwarding ViewModel events to the UI.
 package com.example.rockland.ui.screens
 
 import androidx.compose.foundation.background
@@ -97,12 +96,11 @@ fun CollectionScreen(
     val uiState by viewModel.uiState.collectAsState()
     val userData = userViewModel?.userData?.collectAsState()?.value
     val isVerifiedExpert = userData?.role?.trim()?.lowercase() == "verified_expert"
-    val internalTabIndex = rememberSaveable { mutableIntStateOf(0) } // 0 = Collections, 1 = Dictionary
+    val internalTabIndex = rememberSaveable { mutableIntStateOf(0) }
     val currentTab = selectedTabIndex ?: internalTabIndex.intValue
     val setTab: (Int) -> Unit = onTabSelected ?: { internalTabIndex.intValue = it }
     val selectedItem = remember { mutableStateOf<CollectionItem?>(null) }
 
-    // Forward collection events (add/upload/etc.) to the global top banner.
     LaunchedEffect(userViewModel) {
         if (userViewModel == null) return@LaunchedEffect
         viewModel.events.collect { evt ->
@@ -144,7 +142,6 @@ fun CollectionScreen(
                 .background(Color(0xFFF5F5F5))
                 .padding(horizontal = 16.dp, vertical = 12.dp)
         ) {
-            // ✅ nicer header card
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(18.dp),
@@ -169,7 +166,6 @@ fun CollectionScreen(
 
             Spacer(modifier = Modifier.height(12.dp))
 
-            // ✅ pill-style tabs
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(18.dp),
@@ -180,7 +176,7 @@ fun CollectionScreen(
                     selectedTabIndex = currentTab,
                     modifier = Modifier.fillMaxWidth(),
                     containerColor = Color.White,
-                    indicator = {} // remove underline indicator
+                    indicator = {}
                 ) {
                     val tabShape = RoundedCornerShape(14.dp)
 
@@ -469,7 +465,6 @@ private fun DictionaryTabContent(
     val editingRock = remember { mutableStateOf<Rock?>(null) }
     val rockToDelete = remember { mutableStateOf<Rock?>(null) }
 
-    // ✅ 1) Load dictionary rocks once when user changes
     LaunchedEffect(user?.uid) {
         isLoading.value = true
         error.value = null
@@ -486,7 +481,6 @@ private fun DictionaryTabContent(
         isLoading.value = false
     }
 
-    // ✅ 2) Recompute unlocked ids whenever collection changes
     LaunchedEffect(user?.uid, collectionItems) {
         runCatching {
             val uid = user?.uid
@@ -502,7 +496,6 @@ private fun DictionaryTabContent(
 
     Box(modifier = Modifier.fillMaxSize()) {
         Column(modifier = Modifier.fillMaxSize()) {
-            // ✅ nicer search card
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(18.dp),
@@ -562,7 +555,6 @@ private fun DictionaryTabContent(
                     val byRockId = remember(collectionItems) { collectionItems.associateBy { it.rockId } }
                     val byRockName = remember(collectionItems) { collectionItems.associateBy { it.rockName } }
 
-                    // ✅ 2 columns looks much better than 3 on phones
                     LazyVerticalGrid(
                         columns = GridCells.Fixed(2),
                         modifier = Modifier.fillMaxSize(),
@@ -612,7 +604,6 @@ private fun DictionaryTabContent(
             }
         }
 
-        // ✅ Everything below stays the same (FAB + dialogs)
         if (isVerifiedExpert || isAdmin) {
             FloatingActionButton(
                 onClick = { showAddDialog.value = true },
@@ -976,7 +967,7 @@ private fun DictionaryRockCard(
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .height(150.dp) // ✅ slightly taller for title + hint
+            .height(150.dp)
             .clip(RoundedCornerShape(16.dp))
             .clickable { onClick() },
         colors = CardDefaults.cardColors(containerColor = Color.White),
@@ -990,7 +981,6 @@ private fun DictionaryRockCard(
                     .background(Rock3.copy(alpha = 0.12f)),
                 contentAlignment = Alignment.Center
             ) {
-                // ✅ Only show image if unlocked (keeps mystery)
                 if (unlocked && rock.rockImageUrl.isNotBlank()) {
                     AsyncImage(
                         model = rock.rockImageUrl,
@@ -1013,7 +1003,6 @@ private fun DictionaryRockCard(
                         modifier = Modifier.size(28.dp)
                     )
 
-                    // ✅ small "Locked" chip
                     Box(
                         modifier = Modifier
                             .align(Alignment.TopStart)
@@ -1036,7 +1025,6 @@ private fun DictionaryRockCard(
                     .fillMaxWidth()
                     .padding(horizontal = 10.dp, vertical = 8.dp)
             ) {
-                // ✅ ALWAYS show name even if locked
                 Text(
                     text = rock.rockName,
                     style = MaterialTheme.typography.bodyMedium,

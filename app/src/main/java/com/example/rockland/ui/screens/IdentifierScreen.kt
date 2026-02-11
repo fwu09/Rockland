@@ -603,7 +603,6 @@ private fun IdentifierErrorScreen(message: String, onRetry: () -> Unit) {
     }
 }
 
-/** ✅ NEW: Result screen included so you won’t get "Unresolved reference IdentifierResultScreen" */
 @Composable
 private fun IdentifierResultScreen(
     imageUri: Uri,
@@ -611,7 +610,6 @@ private fun IdentifierResultScreen(
     confidence: Float,
     onScanAgain: () -> Unit,
 
-    // ✅ added back (optional actions)
     onViewRockInfo: (rockName: String) -> Unit = {},
     onSaveToCollection: (rockName: String, imageUri: Uri, confidence: Float) -> Unit = { _, _, _ -> },
     onShareResult: (rockName: String, confidencePercent: Int) -> Unit = { _, _ -> },
@@ -745,7 +743,6 @@ private fun IdentifierResultScreen(
 
                 Spacer(Modifier.height(6.dp))
 
-                // ✅ added back: report button (text-style)
                 TextButton(
                     onClick = { onReportWrongResult(rockName) },
                     modifier = Modifier.align(Alignment.End)
@@ -759,7 +756,6 @@ private fun IdentifierResultScreen(
             }
         }
 
-        // ✅ keep Scan Again as main CTA at bottom
         Button(
             onClick = onScanAgain,
             modifier = Modifier
@@ -822,7 +818,6 @@ private suspend fun scanRockWithCloudFunction(
         .call(payload)
         .await()
 
-    // ✅ FIX: use getData() (public) instead of result.data
     val map = (result.getData() as? Map<*, *>)
         ?: throw IllegalStateException("Invalid response from scanRockImage")
 

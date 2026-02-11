@@ -1,4 +1,3 @@
-// Screen handling the registration form in the UI layer.
 package com.example.rockland.ui.screens
 
 import androidx.compose.foundation.background
@@ -67,7 +66,6 @@ import com.example.rockland.ui.theme.Rock3
 import com.example.rockland.ui.theme.TextDark
 import com.example.rockland.ui.theme.TextLight
 
-// Email validation helper function
 private fun isValidEmail(email: String): Boolean {
     return android.util.Patterns.EMAIL_ADDRESS.matcher(email).matches()
 }
@@ -92,18 +90,14 @@ fun RegisterScreen(
     var confirmPasswordVisible by remember { mutableStateOf(false) }
     var emailTouched by remember { mutableStateOf(false) }
 
-    // Email validation
     val isEmailValid = email.isEmpty() || isValidEmail(email)
     val showEmailError = emailTouched && email.isNotEmpty() && !isEmailValid
 
-    // Check if passwords match (only when both are not empty)
     val passwordsMatch =
         password.isEmpty() || confirmPassword.isEmpty() || password == confirmPassword
 
-    // Password length validation
     val isPasswordLongEnough = password.isEmpty() || password.length >= 6
 
-    // All fields validation
     val isFormValid = firstName.isNotBlank() &&
             lastName.isNotBlank() &&
             email.isNotBlank() &&
@@ -112,7 +106,6 @@ fun RegisterScreen(
             isPasswordLongEnough &&
             passwordsMatch
 
-    // Clear error when user starts typing again
     LaunchedEffect(firstName, lastName, email, password, confirmPassword) {
         if (errorMessage != null) onClearError()
     }
@@ -131,7 +124,6 @@ fun RegisterScreen(
             .background(brush = backgroundGradient)
             .imePadding()
     ) {
-        // Back
         IconButton(
             onClick = onBackClick,
             modifier = Modifier
@@ -155,7 +147,6 @@ fun RegisterScreen(
         ) {
             Spacer(modifier = Modifier.height(34.dp))
 
-            // Header
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(22.dp),
@@ -206,7 +197,6 @@ fun RegisterScreen(
                     HorizontalDivider(color = Color(0xFFEEEEEE))
                     Spacer(modifier = Modifier.height(10.dp))
 
-                    // Error banner (in-header)
                     if (errorMessage != null) {
                         Card(
                             modifier = Modifier.fillMaxWidth(),
@@ -247,7 +237,6 @@ fun RegisterScreen(
 
             Spacer(modifier = Modifier.height(12.dp))
 
-            // Form card
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(22.dp),
@@ -416,7 +405,6 @@ fun RegisterScreen(
                         )
                     )
 
-                    // Small inline “good to go” hint
                     if (isFormValid && !isLoading) {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
@@ -500,7 +488,6 @@ fun RegisterScreen(
         }
 
         if (isLoading) {
-            // Block UI while auth is in progress to avoid double taps / navigation glitches.
             Box(
                 modifier = Modifier
                     .fillMaxSize()

@@ -1,4 +1,3 @@
-// Screen responsible for the login form in the UI layer.
 package com.example.rockland.ui.screens
 
 import androidx.compose.foundation.background
@@ -63,7 +62,6 @@ import com.example.rockland.ui.theme.Rock1
 import com.example.rockland.ui.theme.Rock3
 import com.example.rockland.ui.theme.TextDark
 
-// Validates email input with Android's email pattern.
 private fun isValidEmail(email: String): Boolean {
     return android.util.Patterns.EMAIL_ADDRESS.matcher(email).matches()
 }
@@ -91,7 +89,6 @@ fun LoginScreen(
 
     val isFormValid = email.isNotBlank() && isEmailValid && password.isNotBlank()
 
-    // Clear error when user starts typing
     LaunchedEffect(email, password) {
         if (errorMessage != null) onClearError()
     }
@@ -141,7 +138,6 @@ fun LoginScreen(
         ) {
             Spacer(modifier = Modifier.height(52.dp))
 
-            // Header
             Text(
                 text = stringResource(R.string.app_name),
                 fontSize = 34.sp,
@@ -160,7 +156,6 @@ fun LoginScreen(
 
             Spacer(modifier = Modifier.height(18.dp))
 
-            // Content card
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -182,7 +177,6 @@ fun LoginScreen(
                         color = TextDark
                     )
 
-                    // Error banner
                     if (!errorMessage.isNullOrBlank()) {
                         Box(
                             modifier = Modifier
@@ -354,7 +348,6 @@ fun LoginScreen(
         }
 
         if (isLoading) {
-            // Block UI while auth is in progress to avoid double taps / navigation glitches.
             Box(
                 modifier = Modifier
                     .fillMaxSize()

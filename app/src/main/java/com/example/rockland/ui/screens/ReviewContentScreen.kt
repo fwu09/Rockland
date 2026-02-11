@@ -206,7 +206,6 @@ private fun CommentReviewCard(
                     )
                 }
 
-                // right-side chip
                 Chip(
                     text = "No. ${comment.number}",
                     container = Color(0xFFEFF2FF),

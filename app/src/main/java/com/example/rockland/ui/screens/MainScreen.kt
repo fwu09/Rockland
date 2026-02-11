@@ -1,4 +1,3 @@
-// Screen orchestrating bottom navigation and child content in the UI layer.
 package com.example.rockland.ui.screens
 
 import androidx.compose.foundation.layout.Box
@@ -38,7 +37,6 @@ import com.example.rockland.presentation.viewmodel.ReviewContentViewModel
 import com.example.rockland.presentation.viewmodel.UserViewModel
 import com.example.rockland.ui.theme.Rock1
 
-// Main screen with bottom navigation.
 @Composable
 fun MainScreen(
     onSettingsClick: () -> Unit = {},
@@ -89,7 +87,7 @@ fun MainScreenContent(
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
         bottomBar = {
-            // ✅ Define colors in the composable scope (no helper function needed)
+
             val navItemColors = NavigationBarItemDefaults.colors(
                 selectedIconColor = Rock1,
                 unselectedIconColor = Color(0xFF7A7A7A),
@@ -101,7 +99,7 @@ fun MainScreenContent(
             NavigationBar(
                 modifier = Modifier.fillMaxWidth(),
                 containerColor = Color.White,
-                tonalElevation = 6.dp // ✅ Dp, not Float
+                tonalElevation = 6.dp
             ) {
                 NavigationBarItem(
                     icon = { Icon(Icons.AutoMirrored.Filled.List, contentDescription = "Collect") },
@@ -130,7 +128,6 @@ fun MainScreenContent(
                     alwaysShowLabel = false
                 )
 
-                // Keep Scan label visible (main CTA)
                 NavigationBarItem(
                     icon = { Icon(Icons.Default.Search, contentDescription = "Scan") },
                     label = { Text("Scan") },

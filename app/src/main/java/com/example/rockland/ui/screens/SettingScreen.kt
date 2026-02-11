@@ -158,7 +158,6 @@ fun SettingsScreen(
             )
         },
         bottomBar = {
-            // Sticky save button at the bottom
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -205,7 +204,6 @@ fun SettingsScreen(
             ) {
                 Spacer(modifier = Modifier.height(4.dp))
 
-                // Profile header card (avatar + name/email)
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(20.dp),
@@ -365,7 +363,6 @@ fun SettingsScreen(
                 Spacer(modifier = Modifier.height(8.dp))
             }
 
-            // Optional: subtle blocking overlay while uploading picture
             if (isUploadingPicture) {
                 Box(
                     modifier = Modifier

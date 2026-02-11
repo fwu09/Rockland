@@ -170,7 +170,6 @@ fun InboxScreen(
                 photoIds = photos.map { it.locationPhotoId }
             )
         }
-        // photo-only submissions
         val photoOnly = photosByCommentId[null].orEmpty()
         val groupedPhotoOnly = photoOnly.groupBy { "${it.locationId}|${it.userId}" }
         groupedPhotoOnly.entries.forEachIndexed { index, entry ->
@@ -418,7 +417,6 @@ fun InboxScreen(
                 }
             }
 
-            // Friends entry (replaces former mailbox/notification icon)
             Box(
                 modifier = Modifier
                     .size(38.dp)

@@ -66,7 +66,6 @@ fun BoxesScreen(userId: String?) {
     val db = remember { FirebaseFirestore.getInstance() }
     val scope = rememberCoroutineScope()
 
-    // ✅ Auth state listener (prevents "request.auth == null" race)
     val authUserIdState = remember { mutableStateOf<String?>(FirebaseAuth.getInstance().currentUser?.uid) }
 
     DisposableEffect(Unit) {
@@ -78,21 +77,17 @@ fun BoxesScreen(userId: String?) {
         onDispose { auth.removeAuthStateListener(listener) }
     }
 
-    // Use auth uid as source of truth.
     val resolvedUserId = authUserIdState.value ?: userId
 
-    // Inventory state (from Firestore)
     val commonCount = rememberSaveable { mutableIntStateOf(0) }
     val rareCount = rememberSaveable { mutableIntStateOf(0) }
     val specialCount = rememberSaveable { mutableIntStateOf(0) }
 
-    // UI state
     val isLoading = remember { mutableStateOf(true) }
     val errorMsg = remember { mutableStateOf<String?>(null) }
     val resultDialog = remember { mutableStateOf<BoxOpenResult?>(null) }
     val opening = remember { mutableStateOf(false) }
 
-    // ✅ Only load after auth is ready (no permission denied flicker)
     LaunchedEffect(resolvedUserId) {
         if (resolvedUserId.isNullOrBlank()) {
             isLoading.value = false
@@ -116,7 +111,6 @@ fun BoxesScreen(userId: String?) {
         }
     }
 
-    // If auth not ready or user not logged in
     if (resolvedUserId.isNullOrBlank()) {
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -156,7 +150,6 @@ fun BoxesScreen(userId: String?) {
 
             Spacer(Modifier.height(10.dp))
 
-            // ✅ HUD summary
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceEvenly
@@ -204,7 +197,6 @@ fun BoxesScreen(userId: String?) {
                 val total = commonCount.intValue + rareCount.intValue + specialCount.intValue
 
                 if (total == 0) {
-                    // ✅ nicer empty state
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -250,7 +242,6 @@ fun BoxesScreen(userId: String?) {
                                     onDone = { opening.value = false },
                                     onError = { errorMsg.value = it },
                                     onResult = { result ->
-                                        // locally decrement for instant UI feel
                                         commonCount.intValue = (commonCount.intValue - 1).coerceAtLeast(0)
                                         resultDialog.value = result
                                     }
@@ -367,7 +358,6 @@ private fun InventoryCards(
                         .padding(12.dp)
                 ) {
 
-                    // Top row: Icon + title + count badge
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically
@@ -418,7 +408,6 @@ private fun InventoryCards(
                     HorizontalDivider(color = Color(0xFFEAEAEA))
                     Spacer(Modifier.height(10.dp))
 
-                    // ✅ shimmer bar when opening
                     if (opening) {
                         LinearProgressIndicator(
                             modifier = Modifier
@@ -432,7 +421,6 @@ private fun InventoryCards(
                     val canOpen = item.count > 0 && !opening
                     val buttonLabel = if (opening) "Opening..." else "Open"
 
-                    // ✅ pulsing when you have boxes
                     val infiniteTransition = rememberInfiniteTransition(label = "pulse")
                     val pulseScale by infiniteTransition.animateFloat(
                         initialValue = 1f,
@@ -593,7 +581,6 @@ private suspend fun openBox(
 ) {
     onStart()
     try {
-        // 1) Read box definition
         val boxDoc = db.collection("boxes").document(boxId).get().await()
         if (!boxDoc.exists()) {
             onError("Box '$boxId' not found in Firestore collection 'boxes'.")
@@ -619,7 +606,6 @@ private suspend fun openBox(
             return
         }
 
-        // 2) Pick rarity using weights
         val pickedRarity = weightedPick(rarityChances)
         val rocksForRarity = poolByRarity[pickedRarity].orEmpty()
         if (rocksForRarity.isEmpty()) {
@@ -627,13 +613,10 @@ private suspend fun openBox(
             return
         }
 
-        // 3) Pick a rock within that rarity
         val rockName = rocksForRarity.random()
 
-        // 4) Update user inventory (decrement) + log history + add to collection
         val userRef = db.collection("users").document(userId)
 
-        // Read current inventory safely
         val userDoc = userRef.get().await()
         val inv = (userDoc.get("boxInventory") as? Map<*, *>)
         val current = (inv?.get(boxId) as? Long ?: 0L).toInt()
@@ -645,10 +628,8 @@ private suspend fun openBox(
 
         val newCount = current - 1
 
-        // ✅ Update only the one key inside boxInventory (won't overwrite whole map)
         userRef.update("boxInventory.$boxId", newCount).await()
 
-        // Log open history
         val historyData = mapOf(
             "boxId" to boxId,
             "rarity" to pickedRarity,
@@ -657,7 +638,6 @@ private suspend fun openBox(
         )
         userRef.collection("boxOpenHistory").add(historyData).await()
 
-        // ✅ Add to user's collection (duplicates -> increment count)
         addRockToUserCollection(
             db = db,
             userId = userId,
@@ -681,7 +661,6 @@ private suspend fun addRockToUserCollection(
 ) {
     val repository = CollectionRepository()
 
-    // If your app uses rockId = string key like "granite" or "oil_shale":
     val rockId = rockName.trim().lowercase().replace(" ", "_")
 
     try {
@@ -693,7 +672,6 @@ private suspend fun addRockToUserCollection(
             thumbnailUrl = null
         )
 
-        // ALSO unlock it (merge-safe)
         db.collection("users").document(userId)
             .set(
                 mapOf("unlockedRockIds" to FieldValue.arrayUnion(rockId)),

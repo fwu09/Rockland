@@ -27,7 +27,6 @@ import com.example.rockland.R
 import com.example.rockland.ui.theme.Rock1
 import com.example.rockland.ui.theme.TextLight
 
-// 🪨 Rock Font
 val RockFont = FontFamily(
     Font(R.font.typoster_rock_on)
 )
@@ -37,13 +36,11 @@ fun WelcomeScreen(
     onSignInClick: () -> Unit = {},
     onSignUpClick: () -> Unit = {}
 ) {
-    // 🔊 Welcome Sound
     val playWelcomeSound = rememberSoundPlayer(R.raw.welcome)
     LaunchedEffect(Unit) { playWelcomeSound() }
 
     Box(modifier = Modifier.fillMaxSize()) {
 
-        // 🌄 FULLSCREEN CANYON IMAGE
         Image(
             painter = painterResource(R.drawable.rock_welcome),
             contentDescription = null,
@@ -51,7 +48,6 @@ fun WelcomeScreen(
             contentScale = ContentScale.Crop
         )
 
-        // 🌫 Dark overlay for readability
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -65,7 +61,6 @@ fun WelcomeScreen(
                 )
         )
 
-        // 📦 Foreground Content
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -76,7 +71,6 @@ fun WelcomeScreen(
 
             Spacer(Modifier.height(80.dp))
 
-            // 🪨 ROCKLAND Title with Stone Font
             Text(
                 text = stringResource(R.string.app_name),
                 fontFamily = RockFont,
@@ -105,7 +99,6 @@ fun WelcomeScreen(
                     .padding(bottom = 24.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                // Sign Up
                 Button(
                     onClick = onSignUpClick,
                     modifier = Modifier
@@ -124,7 +117,6 @@ fun WelcomeScreen(
                     )
                 }
 
-                // Sign In
                 OutlinedButton(
                     onClick = onSignInClick,
                     modifier = Modifier
