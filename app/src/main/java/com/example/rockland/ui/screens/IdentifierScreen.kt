@@ -84,11 +84,16 @@ import com.example.rockland.ui.theme.BackgroundLight
 import com.example.rockland.ui.theme.Rock1
 import com.example.rockland.ui.theme.Rock3
 import com.example.rockland.ui.theme.TextDark
+import com.google.firebase.firestore.ktx.firestore
 import com.google.firebase.functions.ktx.functions
 import com.google.firebase.ktx.Firebase
 import kotlinx.coroutines.tasks.await
 import java.io.ByteArrayOutputStream
 import kotlin.math.roundToInt
+import androidx.lifecycle.viewmodel.compose.viewModel
+import com.example.rockland.presentation.viewmodel.CollectionViewModel
+import androidx.compose.runtime.collectAsState
+
 
 sealed interface ScanUiState {
     object Idle : ScanUiState
@@ -97,10 +102,13 @@ sealed interface ScanUiState {
     data class Error(val message: String) : ScanUiState
 }
 
+private enum class AddState { Idle, Adding, Added }
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun IdentifierScreen(userViewModel: UserViewModel) {
     val context = LocalContext.current
+    val collectionViewModel: CollectionViewModel = viewModel()
     var uiState by remember { mutableStateOf<ScanUiState>(ScanUiState.Idle) }
 
     // recent scans (in-memory)
@@ -185,7 +193,9 @@ fun IdentifierScreen(userViewModel: UserViewModel) {
                     imageUri = state.imageUri,
                     rockName = state.rockName,
                     confidence = state.confidence,
-                    onScanAgain = { uiState = ScanUiState.Idle }
+                    onScanAgain = { uiState = ScanUiState.Idle },
+                    userViewModel = userViewModel,
+                    collectionViewModel = collectionViewModel
                 )
 
                 is ScanUiState.Error -> IdentifierErrorScreen(
@@ -610,12 +620,104 @@ private fun IdentifierResultScreen(
     confidence: Float,
     onScanAgain: () -> Unit,
 
-    onViewRockInfo: (rockName: String) -> Unit = {},
-    onSaveToCollection: (rockName: String, imageUri: Uri, confidence: Float) -> Unit = { _, _, _ -> },
-    onShareResult: (rockName: String, confidencePercent: Int) -> Unit = { _, _ -> },
-    onReportWrongResult: (rockName: String) -> Unit = {}
+    userViewModel: UserViewModel,
+    collectionViewModel: CollectionViewModel
 ) {
     val percent = (confidence * 100f).coerceIn(0f, 100f).roundToInt()
+    val context = LocalContext.current
+    val db = Firebase.firestore
+    // `collectionRockId` is what we will store in user's collection as the stable identifier.
+    // Prefer numeric `rockID` from Firestore when available.
+    var collectionRockId by remember(rockName) { mutableStateOf(rockName.trim().lowercase()) }
+
+    var rockDesc by remember { mutableStateOf<String?>(null) }
+    var rockLocation by remember { mutableStateOf<String?>(null) }
+    var rockRarity by remember { mutableStateOf<String?>(null) }
+    var rockImageUrl by remember { mutableStateOf<String?>(null) }
+
+    var isLoading by remember { mutableStateOf(true) }
+    var errorMsg by remember { mutableStateOf<String?>(null) }
+    var addState by remember { mutableStateOf(AddState.Idle) }
+    var pendingAddRockId by remember { mutableStateOf<String?>(null) }
+
+    // Fetch rock details whenever detected rock changes
+    LaunchedEffect(rockName) {
+        isLoading = true
+        errorMsg = null
+        rockDesc = null
+        rockLocation = null
+        rockRarity = null
+        rockImageUrl = null
+        collectionRockId = rockName.trim().lowercase()
+
+        try {
+            val name = rockName.trim()
+            val doc = db.collection("rock")
+                .whereEqualTo("rockName", name)
+                .limit(1)
+                .get()
+                .await()
+                .documents
+                .firstOrNull()
+
+            if (doc != null) {
+                val rid = doc.getLong("rockID")?.toString()
+                collectionRockId = rid ?: doc.id
+                rockDesc = doc.getString("rockDesc")
+                rockLocation = doc.getString("rockLocation")
+                rockRarity = doc.getString("rockRarity")
+                rockImageUrl = doc.getString("rockImageUrl")
+            } else {
+                errorMsg = "No details found for $rockName."
+            }
+        } catch (e: Exception) {
+            val code = (e as? com.google.firebase.firestore.FirebaseFirestoreException)?.code?.name
+            errorMsg = if (code != null) {
+                "Failed to load details ($code): ${e.message ?: "Unknown error"}"
+            } else {
+                "Failed to load details: ${e.message ?: "Unknown error"}"
+            }
+        } finally {
+            isLoading = false
+        }
+    }
+
+    // Forward collection add results to your global top banner
+    LaunchedEffect(collectionViewModel) {
+        collectionViewModel.events.collect { evt ->
+            when (evt) {
+                is com.example.rockland.presentation.viewmodel.CollectionEvent.Success -> {
+                    userViewModel.showSuccess(evt.message)
+                    if (evt.rockId != null && evt.rockId == pendingAddRockId) addState = AddState.Added
+                }
+                is com.example.rockland.presentation.viewmodel.CollectionEvent.Error -> {
+                    userViewModel.showError(evt.message)
+                    if (evt.rockId != null && evt.rockId == pendingAddRockId) {
+                        addState =
+                            if (evt.message.contains("Already in your collection", ignoreCase = true)) {
+                                AddState.Added
+                            } else {
+                                AddState.Idle
+                            }
+                    }
+                }
+            }
+        }
+    }
+
+    // Check if already in collection
+    val collectionUiState by collectionViewModel.uiState.collectAsState()
+    val alreadyInCollection =
+        collectionUiState.items.any { item ->
+            item.rockId == collectionRockId || item.rockName.equals(rockName, ignoreCase = true)
+        }
+
+    // Use Firestore image URL if available, else use scanned image
+    val headerImageModel: Any? = when {
+        !rockImageUrl.isNullOrBlank() -> rockImageUrl
+        imageUri != Uri.EMPTY -> imageUri
+        else -> null
+    }
 
     Column(
         modifier = Modifier
@@ -633,14 +735,14 @@ private fun IdentifierResultScreen(
             elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
         ) {
             Column(modifier = Modifier.padding(14.dp)) {
+
+                // Header row: Result + confidence pill
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text("Result", fontWeight = FontWeight.SemiBold, color = TextDark)
-
-                    // small confidence pill
                     Box(
                         modifier = Modifier
                             .clip(RoundedCornerShape(999.dp))
@@ -666,12 +768,14 @@ private fun IdentifierResultScreen(
                         .background(Rock3.copy(alpha = 0.15f)),
                     contentAlignment = Alignment.Center
                 ) {
-                    AsyncImage(
-                        model = imageUri,
-                        contentDescription = "Scanned rock",
-                        modifier = Modifier.fillMaxSize(),
-                        contentScale = ContentScale.Crop
-                    )
+                    if (headerImageModel != null) {
+                        AsyncImage(
+                            model = headerImageModel,
+                            contentDescription = "Scanned rock",
+                            modifier = Modifier.fillMaxSize(),
+                            contentScale = ContentScale.Crop
+                        )
+                    }
                 }
 
                 Spacer(Modifier.height(12.dp))
@@ -688,87 +792,169 @@ private fun IdentifierResultScreen(
                     color = TextDark.copy(alpha = 0.7f)
                 )
 
+                // -----------------------------
+                // (1) INFO SECTION (replaces tips/next steps)
+                // -----------------------------
                 Spacer(Modifier.height(12.dp))
                 HorizontalDivider(color = Color(0xFFEDEDED))
                 Spacer(Modifier.height(12.dp))
 
                 Text(
-                    text = "Next steps",
+                    text = "Information",
                     fontWeight = FontWeight.SemiBold,
                     color = TextDark
                 )
                 Spacer(Modifier.height(6.dp))
-                Text(
-                    text = "• If it looks wrong, try another angle.\n• Strong lighting improves accuracy.\n• You can scan again anytime.",
-                    fontSize = 12.sp,
-                    color = TextDark.copy(alpha = 0.75f),
-                    lineHeight = 18.sp
-                )
 
-                Spacer(Modifier.height(14.dp))
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    OutlinedButton(
-                        onClick = { onViewRockInfo(rockName) },
-                        modifier = Modifier.weight(1f),
-                        shape = RoundedCornerShape(14.dp)
-                    ) {
-                        Text("View Info", fontWeight = FontWeight.SemiBold, color = TextDark)
+                when {
+                    isLoading -> {
+                        Text(
+                            text = "Loading rock info…",
+                            fontSize = 12.sp,
+                            color = TextDark.copy(alpha = 0.75f)
+                        )
                     }
 
-                    OutlinedButton(
-                        onClick = { onShareResult(rockName, percent) },
-                        modifier = Modifier.weight(1f),
-                        shape = RoundedCornerShape(14.dp)
-                    ) {
-                        Text("Share", fontWeight = FontWeight.SemiBold, color = TextDark)
+                    errorMsg != null -> {
+                        Text(
+                            text = errorMsg!!,
+                            fontSize = 12.sp,
+                            color = Color(0xFFB00020)
+                        )
+                    }
+
+                    else -> {
+                        if (!rockRarity.isNullOrBlank()) {
+                            Text(
+                                text = "Rarity: $rockRarity",
+                                fontSize = 12.sp,
+                                color = TextDark.copy(alpha = 0.8f)
+                            )
+                        }
+                        if (!rockLocation.isNullOrBlank()) {
+                            Text(
+                                text = "Typical location: $rockLocation",
+                                fontSize = 12.sp,
+                                color = TextDark.copy(alpha = 0.8f)
+                            )
+                        }
+                        Spacer(Modifier.height(6.dp))
+                        Text(
+                            text = rockDesc?.takeIf { it.isNotBlank() }
+                                ?: "No description available yet.",
+                            fontSize = 12.sp,
+                            color = TextDark.copy(alpha = 0.75f),
+                            lineHeight = 18.sp
+                        )
                     }
                 }
 
-                Spacer(Modifier.height(10.dp))
+                // -----------------------------
+                // BUTTONS
+                // -----------------------------
+                Spacer(Modifier.height(14.dp))
 
-                Button(
-                    onClick = { onSaveToCollection(rockName, imageUri, confidence) },
+                val actionHeight = 52.dp
+
+                // 2) Save to Collection
+                OutlinedButton(
+                    onClick = {
+                        if (alreadyInCollection) {
+                            userViewModel.showInfo("Already in your collection.")
+                            return@OutlinedButton
+                        }
+
+                        when (addState) {
+                            AddState.Added -> userViewModel.showInfo("Already in your collection.")
+                            AddState.Adding -> userViewModel.showInfo("Adding to collection…")
+                            AddState.Idle -> {
+                                pendingAddRockId = collectionRockId
+                                addState = AddState.Adding
+
+                                collectionViewModel.addRockFromIdentification(
+                                    rockId = collectionRockId,
+                                    rockName = rockName,
+                                    thumbnailUrl = rockImageUrl,
+                                    capturedImageUri = if (imageUri != Uri.EMPTY) imageUri else null,
+                                    context = context
+                                )
+                            }
+                        }
+                    },
+                    enabled = !alreadyInCollection && addState != AddState.Adding,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(50.dp),
+                        .height(actionHeight),
                     shape = RoundedCornerShape(14.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = Rock3)
+                    border = BorderStroke(1.dp, Rock3)
                 ) {
-                    Text("Save to Collection", fontWeight = FontWeight.SemiBold, color = Color.White)
+                    Text(
+                        text = when {
+                            alreadyInCollection -> "Already in Collection"
+                            addState == AddState.Added -> "Added"
+                            addState == AddState.Adding -> "Adding…"
+                            else -> "Save to Collection"
+                        },
+                        fontWeight = FontWeight.SemiBold,
+                        color = TextDark
+                    )
                 }
 
                 Spacer(Modifier.height(6.dp))
 
-                TextButton(
-                    onClick = { onReportWrongResult(rockName) },
-                    modifier = Modifier.align(Alignment.End)
+                // 2) Add Image to Personal Notes
+                Button(
+                    onClick = {
+                        val uriToUpload = if (imageUri != Uri.EMPTY) imageUri else null
+                        if (uriToUpload == null) {
+                            userViewModel.showError(
+                                "No image to save. Please scan with the camera or upload from gallery."
+                            )
+                            return@Button
+                        }
+
+                        collectionViewModel.addCapturedImageToPersonalNotesFromIdentification(
+                            rockId = collectionRockId,
+                            rockName = rockName,
+                            rockSource = "identify",
+                            thumbnailUrl = rockImageUrl,
+                            imageUri = uriToUpload,
+                            context = context
+                        )
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(actionHeight),
+                    shape = RoundedCornerShape(14.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = Rock1)
                 ) {
                     Text(
-                        "Report wrong result",
-                        color = Color(0xFF8B2E2E),
-                        fontWeight = FontWeight.SemiBold
+                        "Add Image to Personal Notes",
+                        fontWeight = FontWeight.SemiBold,
+                        color = Color.White
                     )
+                }
+
+                Spacer(Modifier.height(10.dp))
+
+                // 3) Report Error
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                    TextButton(
+                        onClick = {
+                            userViewModel.showInfo("Report submitted (TODO: wire to report flow).")
+                        }
+                    ) {
+                        Text(
+                            "Report error",
+                            color = Color(0xFF8B2E2E),
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
                 }
             }
         }
-
-        Button(
-            onClick = onScanAgain,
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(56.dp),
-            shape = RoundedCornerShape(14.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = Rock1)
-        ) {
-            Text("Scan Again", fontWeight = FontWeight.SemiBold, color = Color.White)
-        }
     }
 }
-
 
 private fun saveBitmapToMediaStore(context: Context, bitmap: Bitmap): Uri? {
     val contentValues = ContentValues().apply {
