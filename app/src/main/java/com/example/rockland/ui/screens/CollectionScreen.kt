@@ -82,7 +82,6 @@ import com.example.rockland.ui.theme.TextDark
 import com.example.rockland.presentation.viewmodel.CollectionViewModel
 import com.example.rockland.presentation.viewmodel.CollectionEvent
 import com.example.rockland.presentation.viewmodel.UserViewModel
-import com.google.firebase.firestore.FirebaseFirestore
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat

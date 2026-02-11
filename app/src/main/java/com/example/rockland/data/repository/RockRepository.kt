@@ -4,6 +4,7 @@ import android.util.Log
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.storage.FirebaseStorage
 import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.tasks.await
 
@@ -83,7 +84,7 @@ class RockRepository {
 
         // Resolve URLs in parallel (faster)
         return coroutineScope {
-            rocks.map { r -> async { withResolvedImageUrl(r) ?: r } }.map { it.await() }
+            rocks.map { r -> async { withResolvedImageUrl(r) ?: r } }.awaitAll()
         }
     }
 

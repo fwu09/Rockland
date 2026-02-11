@@ -19,6 +19,7 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Divider
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -513,7 +514,6 @@ private suspend fun openBox(
             db = db,
             userId = userId,
             rockName = rockName,
-            rarity = pickedRarity,
             sourceBoxId = boxId
         )
 
@@ -528,7 +528,6 @@ private suspend fun addRockToUserCollection(
     db: FirebaseFirestore,
     userId: String,
     rockName: String,
-    rarity: String,
     sourceBoxId: String
 ) {
     // ✅ Use the SAME repository + schema as the rest of the app
