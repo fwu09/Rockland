@@ -88,7 +88,6 @@ import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Locale
 
-
 @Composable
 fun CollectionScreen(
     userViewModel: UserViewModel? = null,
@@ -174,20 +173,12 @@ fun CollectionScreen(
             Spacer(modifier = Modifier.height(12.dp))
 
             when (currentTab) {
-                /*0 -> CollectionsTabContent(
+                0 -> CollectionsTabContent(
                     items = uiState.items,
                     isLoading = uiState.isLoading,
                     onDelete = { item -> viewModel.removeFromCollection(item.id) },
                     onSelect = { item -> selectedItem.value = item }
-                )*/
-                0 -> CollectionsTabContent(
-                items = uiState.items,
-                isLoading = uiState.isLoading,
-                onDelete = { item -> viewModel.removeFromCollection(item.id) },
-                onSelect = { item -> selectedItem.value = item },
-                onTestCloudFunction = { viewModel.testCloudFunction() }  // ✅ ADD
-            )
-
+                )
 
                 1 -> DictionaryTabContent(
                     userViewModel = userViewModel,
@@ -200,22 +191,15 @@ fun CollectionScreen(
     }
 }
 
-
 @Composable
 private fun CollectionsTabContent(
-
     items: List<CollectionItem>,
     isLoading: Boolean,
     onDelete: (CollectionItem) -> Unit,
-    onSelect: (CollectionItem) -> Unit,
-    onTestCloudFunction: () -> Unit   // ✅ ADD
-)
-
-{
-
-
+    onSelect: (CollectionItem) -> Unit
+) {
     Spacer(modifier = Modifier.height(12.dp))
-    //new
+
     if (isLoading && items.isEmpty()) {
         CollectionSkeletonList()
         return
@@ -427,7 +411,6 @@ private fun DictionaryTabContent(
 
     val rockRepositoryOps = remember { RockRepository() }
     val reviewRepository = remember { ContentReviewRepository() }
-    val db = remember { FirebaseFirestore.getInstance() }
     val scope = rememberCoroutineScope()
 
     val allRocks = remember { mutableStateOf<List<Rock>>(emptyList()) }
@@ -441,18 +424,13 @@ private fun DictionaryTabContent(
     val editingRock = remember { mutableStateOf<Rock?>(null) }
     val rockToDelete = remember { mutableStateOf<Rock?>(null) }
 
-    // Load dictionary rocks and per-user unlock set.
+    // ✅ 1) Load dictionary rocks once when user changes
     LaunchedEffect(user?.uid) {
         isLoading.value = true
         error.value = null
 
         runCatching {
-            val rocks = viewModel.getDictionaryRocks()
-            allRocks.value = rocks
-
-            val uid = user?.uid
-            val unlocked = viewModel.getUnlockedRockIds(uid, collectionItems)
-            unlockedRockIds.value = unlocked
+            allRocks.value = viewModel.getDictionaryRocks()
         }.onFailure { e ->
             if (e is CancellationException) return@LaunchedEffect
             val msg = e.message ?: "Failed to load rock dictionary."
@@ -463,100 +441,117 @@ private fun DictionaryTabContent(
         isLoading.value = false
     }
 
-    val q = query.value.trim()
-    val filtered = if (q.isBlank()) {
-        allRocks.value
-    } else {
-        // Prefix fuzzy search: match from the first letter in order.
-        allRocks.value.filter { it.rockName.startsWith(q, ignoreCase = true) }
+    // ✅ 2) Recompute unlocked ids whenever collection changes (THIS IS THE KEY FIX)
+    LaunchedEffect(user?.uid, collectionItems) {
+        runCatching {
+            val uid = user?.uid
+            unlockedRockIds.value = viewModel.getUnlockedRockIds(uid, collectionItems)
+        }.onFailure { e ->
+            if (e is CancellationException) return@LaunchedEffect
+            // Optional: don't spam UI here, but you can if you want:
+            // userViewModel?.showError(e.message ?: "Failed to refresh unlocks.")
+        }
     }
+
+    val q = query.value.trim()
+    val filtered = if (q.isBlank()) allRocks.value
+    else allRocks.value.filter { it.rockName.startsWith(q, ignoreCase = true) }
 
     Box(modifier = Modifier.fillMaxSize()) {
         Column(modifier = Modifier.fillMaxSize()) {
-        OutlinedTextField(
-            value = query.value,
-            onValueChange = { query.value = it },
-            modifier = Modifier.fillMaxWidth(),
-            label = { Text("Rocks dictionary search bar") },
-            singleLine = true,
-            leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
-            trailingIcon = {
-                if (query.value.isNotBlank()) {
-                    IconButton(onClick = { query.value = "" }) {
-                        Icon(Icons.Default.Refresh, contentDescription = "Reset")
+            OutlinedTextField(
+                value = query.value,
+                onValueChange = { query.value = it },
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text("Rocks dictionary search bar") },
+                singleLine = true,
+                leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+                trailingIcon = {
+                    if (query.value.isNotBlank()) {
+                        IconButton(onClick = { query.value = "" }) {
+                            Icon(Icons.Default.Refresh, contentDescription = "Reset")
+                        }
                     }
                 }
-            }
-        )
+            )
 
-        Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(12.dp))
 
-        when {
-            isLoading.value -> {
-                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text("Loading...")
+            when {
+                isLoading.value -> {
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Text("Loading...")
+                    }
                 }
-            }
 
-            error.value != null -> {
-                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text(error.value!!, color = Color.Red)
+                error.value != null -> {
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Text(error.value!!, color = Color.Red)
+                    }
                 }
-            }
 
-            filtered.isEmpty() -> {
-                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text("No matching rocks.")
+                filtered.isEmpty() -> {
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Text("No matching rocks.")
+                    }
                 }
-            }
 
-            else -> {
-                val byRockId = remember(collectionItems) { collectionItems.associateBy { it.rockId } }
-                val byRockName = remember(collectionItems) { collectionItems.associateBy { it.rockName } }
+                else -> {
+                    // ✅ Maps to instantly detect “already collected” rocks
+                    val byRockId = remember(collectionItems) { collectionItems.associateBy { it.rockId } }
+                    val byRockName = remember(collectionItems) { collectionItems.associateBy { it.rockName } }
 
-                LazyVerticalGrid(
-                    columns = GridCells.Fixed(3),
-                    modifier = Modifier.fillMaxSize(),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    items(filtered, key = { it.rockID }) { rock ->
-                        val unlocked = unlockedRockIds.value.contains(rock.rockID.toString())
-                        DictionaryRockCard(
+                    LazyVerticalGrid(
+                        columns = GridCells.Fixed(3),
+                        modifier = Modifier.fillMaxSize(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        items(filtered, key = { it.rockID }) { rock ->
+                            // ✅ UNLOCK RULE:
+                            // unlocked if (a) in unlockedRockIds OR (b) already collected
+                            val isCollected = byRockId[rock.rockID.toString()] != null ||
+                                    byRockName[rock.rockName] != null
+
+                            val unlocked = unlockedRockIds.value.contains(rock.rockID.toString()) || isCollected
+
+                            DictionaryRockCard(
+                                rock = rock,
+                                unlocked = unlocked,
+                                onClick = { selectedRock.value = rock }
+                            )
+                        }
+                    }
+
+                    val rock = selectedRock.value
+                    if (rock != null) {
+                        val collectionItem = byRockId[rock.rockID.toString()] ?: byRockName[rock.rockName]
+                        val isCollected = collectionItem != null
+                        val isUnlocked = unlockedRockIds.value.contains(rock.rockID.toString()) || isCollected
+
+                        RockDictionaryDialog(
                             rock = rock,
-                            unlocked = unlocked,
-                            onClick = { selectedRock.value = rock }
+                            isUnlocked = isUnlocked,
+                            collectionItem = collectionItem,
+                            onDismiss = { selectedRock.value = null },
+                            canEdit = isVerifiedExpert || isAdmin,
+                            canDelete = isAdmin,
+                            onEdit = {
+                                editingRock.value = rock
+                                showEditDialog.value = true
+                                selectedRock.value = null
+                            },
+                            onDelete = {
+                                rockToDelete.value = rock
+                                selectedRock.value = null
+                            }
                         )
                     }
                 }
-
-                val rock = selectedRock.value
-                if (rock != null) {
-                    val collectionItem = byRockId[rock.rockID.toString()] ?: byRockName[rock.rockName]
-                    val isCollected = collectionItem != null
-                    val isUnlocked = unlockedRockIds.value.contains(rock.rockID.toString()) || isCollected
-                    RockDictionaryDialog(
-                        rock = rock,
-                        isUnlocked = isUnlocked,
-                        collectionItem = collectionItem,
-                        onDismiss = { selectedRock.value = null },
-                        canEdit = isVerifiedExpert || isAdmin,
-                        canDelete = isAdmin,
-                        onEdit = {
-                            editingRock.value = rock
-                            showEditDialog.value = true
-                            selectedRock.value = null
-                        },
-                        onDelete = {
-                            rockToDelete.value = rock
-                            selectedRock.value = null
-                        }
-                    )
-                }
             }
         }
-        }
 
+        // ✅ Everything below stays the same (FAB + dialogs)
         if (isVerifiedExpert || isAdmin) {
             FloatingActionButton(
                 onClick = { showAddDialog.value = true },
@@ -586,18 +581,21 @@ private fun DictionaryTabContent(
                                 showAddDialog.value = false
                                 return@runCatching
                             }
+
                             val displayName = listOf(
                                 userData?.firstName.orEmpty(),
                                 userData?.lastName.orEmpty()
                             ).filter { it.isNotBlank() }.joinToString(" ").ifBlank {
                                 userData?.email.orEmpty().ifBlank { "Verified Expert" }
                             }
+
                             val imageUrl = request.imageUri?.let { uri ->
                                 reviewRepository.uploadRockDictionaryImage(
                                     userId = user?.uid.orEmpty(),
                                     imageUri = uri
                                 )
                             } ?: request.existingImageUrl
+
                             reviewRepository.submitRockDictionaryRequest(
                                 requestType = request.requestType,
                                 rockID = request.rockID,
@@ -609,6 +607,7 @@ private fun DictionaryTabContent(
                                 submittedBy = displayName,
                                 submittedById = user?.uid.orEmpty()
                             )
+
                             userViewModel?.showInfo(
                                 "New Rock data has been saved and sent to the team for review. Please await a response from the Rockland Team."
                             )
@@ -639,12 +638,14 @@ private fun DictionaryTabContent(
                             ).filter { it.isNotBlank() }.joinToString(" ").ifBlank {
                                 userData?.email.orEmpty().ifBlank { "Verified Expert" }
                             }
+
                             val imageUrl = request.imageUri?.let { uri ->
                                 reviewRepository.uploadRockDictionaryImage(
                                     userId = user?.uid.orEmpty(),
                                     imageUri = uri
                                 )
                             } ?: request.existingImageUrl
+
                             reviewRepository.submitRockDictionaryRequest(
                                 requestType = request.requestType,
                                 rockID = request.rockID,
@@ -656,6 +657,7 @@ private fun DictionaryTabContent(
                                 submittedBy = displayName,
                                 submittedById = user?.uid.orEmpty()
                             )
+
                             userViewModel?.showInfo(
                                 "Rock Information Update has been saved and sent to the team for review. Please await a response from the Rockland Team."
                             )
@@ -738,6 +740,10 @@ private fun DictionaryTabContent(
         }
     }
 }
+
+
+
+
 
 private data class PendingRockRequest(
     val requestType: String,

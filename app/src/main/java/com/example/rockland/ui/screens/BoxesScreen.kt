@@ -45,6 +45,7 @@ import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.SetOptions
+import com.example.rockland.data.repository.CollectionRepository
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import kotlin.random.Random
@@ -530,27 +531,46 @@ private suspend fun addRockToUserCollection(
     rarity: String,
     sourceBoxId: String
 ) {
-    val userRef = db.collection("users").document(userId)
+    // ✅ Use the SAME repository + schema as the rest of the app
+    val repository = CollectionRepository()
 
-    // Use rock name as docId (simple). If you prefer rockId, swap this later.
-    val rockDocId = rockName.trim().lowercase().replace(" ", "_")
+    // ✅ Keep rockId stable and consistent.
+    // If your dictionary uses rockName EXACTLY, keep it simple:
+    val rockId = rockName.trim().lowercase().replace(" ", "_")
 
-    val collectionRef = userRef.collection("collection").document(rockDocId)
+    try {
+        // 1) Add to collection using your existing repository
+        // IMPORTANT: this only works if addRockToCollection is a suspend function
+        // or internally uses Tasks.await().
+        repository.addRockToCollection(
+            userId = userId,
+            rockId = rockId,
+            rockSource = "box:$sourceBoxId",
+            rockName = rockName,
+            thumbnailUrl = null
+        )
 
-    // Merge-safe:
-    // - if first time: create doc with count = 1
-    // - if duplicate: increment count
-    val data = mapOf(
-        "rockId" to rockDocId,
-        "rockName" to rockName,
-        "rarity" to rarity,
-        "count" to FieldValue.increment(1),
-        "lastObtainedAt" to System.currentTimeMillis(),
-        "obtainedFrom" to "box:$sourceBoxId"
-    )
+        // 2) ✅ ALSO unlock it (many UIs hide rocks unless unlocked)
+        // This is merge-safe and will not overwrite other fields.
+        db.collection("users").document(userId)
+            .set(
+                mapOf("unlockedRockIds" to FieldValue.arrayUnion(rockId)),
+                SetOptions.merge()
+            )
+            .await()
 
-    collectionRef.set(data, SetOptions.merge()).await()
+        // Optional: store rarity somewhere if your UI needs it later
+        // db.collection("users").document(userId)
+        //   .collection("collection_meta").document(rockId)
+        //   .set(mapOf("rarity" to rarity), SetOptions.merge()).await()
+
+    } catch (e: Exception) {
+        // Bubble up so openBox() catch shows it in UI
+        throw IllegalStateException("Failed to add '$rockName' to collection: ${e.message}", e)
+    }
 }
+
+
 
 
 private fun weightedPick(weights: Map<String, Int>): String {

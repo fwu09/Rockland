@@ -1,11 +1,11 @@
 package com.example.rockland.data.repository
 
+import android.util.Log
 import com.google.firebase.firestore.FirebaseFirestore
-import kotlinx.coroutines.tasks.await
 import com.google.firebase.storage.FirebaseStorage
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
-
+import kotlinx.coroutines.tasks.await
 
 // Simple repository that reads rock metadata from Firestore.
 data class Rock(
@@ -22,37 +22,41 @@ data class Rock(
     val rockImageUrl: String = ""
 )
 
-
 class RockRepository {
 
     private val db = FirebaseFirestore.getInstance()
     private val storage = FirebaseStorage.getInstance()
 
+    /**
+     * Resolve rockImageUrl from Storage if it's blank and rockImageName is present.
+     * This is SAFE: if resolving fails, we return the original rock unchanged.
+     */
     private suspend fun withResolvedImageUrl(rock: Rock?): Rock? {
         if (rock == null) return null
 
-        android.util.Log.d("ROCKIMG", "Firestore rock=${rock.rockName} name='${rock.rockImageName}' url='${rock.rockImageUrl}'")
+        Log.d("ROCKIMG", "Firestore rock=${rock.rockName} name='${rock.rockImageName}' url='${rock.rockImageUrl}'")
 
         if (rock.rockImageUrl.isNotBlank()) return rock
         if (rock.rockImageName.isBlank()) return rock
 
         return try {
+            // ✅ If your Storage folder is actually "rocks/" (plural), change here.
             val path = "rock/${rock.rockImageName}"
-            android.util.Log.d("ROCKIMG", "Resolving storage path=$path")
+            Log.d("ROCKIMG", "Resolving storage path=$path")
 
             val url = storage.reference.child(path).downloadUrl.await().toString()
-            android.util.Log.d("ROCKIMG", "Resolved url=$url")
+            Log.d("ROCKIMG", "Resolved url=$url")
 
             rock.copy(rockImageUrl = url)
         } catch (e: Exception) {
-            android.util.Log.e("ROCKIMG", "Failed to resolve url for ${rock.rockImageName}: ${e.message}", e)
+            Log.e("ROCKIMG", "Failed to resolve url for ${rock.rockImageName}: ${e.message}", e)
             rock
         }
     }
 
-
     suspend fun getRockByName(rockName: String): Rock? {
         val snapshot = db.collection("rock")
+            // ✅ If your Firestore field is stored as "rockname" or something else, change here.
             .whereEqualTo("rockName", rockName)
             .limit(1)
             .get()
@@ -82,6 +86,7 @@ class RockRepository {
             rocks.map { r -> async { withResolvedImageUrl(r) ?: r } }.map { it.await() }
         }
     }
+
     suspend fun hasActiveDependencies(rockId: Int): Boolean {
         // Prefer new explicit rockId field on missions/achievements; fall back to legacy rockID if present.
         val missionByRockId = db.collection("missions")
@@ -122,7 +127,4 @@ class RockRepository {
         val doc = snapshot.documents.firstOrNull() ?: return
         doc.reference.delete().await()
     }
-
-
-
 }
