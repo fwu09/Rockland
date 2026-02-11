@@ -212,13 +212,7 @@ private fun CollectionsTabContent(
 )
 
 {
-    //new
-    Button(
-        onClick = onTestCloudFunction,
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        Text("Test Cloud Function")
-    }
+
 
     Spacer(modifier = Modifier.height(12.dp))
     //new
