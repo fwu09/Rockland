@@ -83,6 +83,11 @@ dependencies {
     // Image loading (URLs from Firestore/Storage)
     implementation("io.coil-kt:coil-compose:2.6.0")
 
+    implementation("com.google.firebase:firebase-functions-ktx")
+    implementation(platform("com.google.firebase:firebase-bom:33.7.0"))
+    implementation("com.google.firebase:firebase-functions-ktx")
+
+
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)

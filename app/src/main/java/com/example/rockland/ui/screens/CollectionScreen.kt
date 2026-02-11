@@ -174,12 +174,20 @@ fun CollectionScreen(
             Spacer(modifier = Modifier.height(12.dp))
 
             when (currentTab) {
-                0 -> CollectionsTabContent(
+                /*0 -> CollectionsTabContent(
                     items = uiState.items,
                     isLoading = uiState.isLoading,
                     onDelete = { item -> viewModel.removeFromCollection(item.id) },
                     onSelect = { item -> selectedItem.value = item }
-                )
+                )*/
+                0 -> CollectionsTabContent(
+                items = uiState.items,
+                isLoading = uiState.isLoading,
+                onDelete = { item -> viewModel.removeFromCollection(item.id) },
+                onSelect = { item -> selectedItem.value = item },
+                onTestCloudFunction = { viewModel.testCloudFunction() }  // ✅ ADD
+            )
+
 
                 1 -> DictionaryTabContent(
                     userViewModel = userViewModel,
@@ -195,11 +203,25 @@ fun CollectionScreen(
 
 @Composable
 private fun CollectionsTabContent(
+
     items: List<CollectionItem>,
     isLoading: Boolean,
     onDelete: (CollectionItem) -> Unit,
-    onSelect: (CollectionItem) -> Unit
-) {
+    onSelect: (CollectionItem) -> Unit,
+    onTestCloudFunction: () -> Unit   // ✅ ADD
+)
+
+{
+    //new
+    Button(
+        onClick = onTestCloudFunction,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Text("Test Cloud Function")
+    }
+
+    Spacer(modifier = Modifier.height(12.dp))
+    //new
     if (isLoading && items.isEmpty()) {
         CollectionSkeletonList()
         return

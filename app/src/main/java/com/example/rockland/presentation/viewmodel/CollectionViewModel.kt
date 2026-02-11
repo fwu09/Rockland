@@ -30,6 +30,9 @@ import kotlinx.coroutines.withContext
 import java.util.UUID
 import kotlinx.coroutines.CancellationException
 
+import com.google.firebase.functions.FirebaseFunctions
+
+
 // Holds list data, loading, and banner-ready error for the collection screen.
 data class CollectionUiState(
     val items: List<CollectionItem> = emptyList(),
@@ -51,6 +54,9 @@ class CollectionViewModel(
     private val awardsRepository = AwardsRepository()
     private val rockRepository = RockRepository()
     private val firestore = FirebaseFirestore.getInstance()
+    //new AI
+    private val functions = FirebaseFunctions.getInstance()
+
 
     private val _events = MutableSharedFlow<CollectionEvent>(extraBufferCapacity = 1)
     val events = _events.asSharedFlow()
@@ -441,4 +447,24 @@ class CollectionViewModel(
             }
         }
     }
+    fun testCloudFunction() {
+        viewModelScope.launch {
+            try {
+                val result = functions
+                    .getHttpsCallable("helloRockland")
+                    .call()
+                    .await()
+
+                val map = (result.getData() as? Map<*, *>)
+                    ?: throw IllegalStateException("Invalid response from helloRockland")
+
+                val msg = map["message"]?.toString() ?: "No message returned"
+                _events.tryEmit(CollectionEvent.Success(msg))
+            } catch (e: Exception) {
+                _events.tryEmit(CollectionEvent.Error("Cloud Function failed: ${e.message}"))
+            }
+        }
+    }
+
+
 }

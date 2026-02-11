@@ -1,5 +1,7 @@
 // Entry point for the identify-rock feature and its supporting states.
 package com.example.rockland.ui.screens
+
+import android.content.ContentValues
 import android.content.Context
 import android.content.pm.ApplicationInfo
 import android.graphics.Bitmap
@@ -8,20 +10,18 @@ import android.graphics.ImageDecoder
 import android.net.Uri
 import android.os.Build
 import android.provider.MediaStore
+import android.util.Base64
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.annotation.RequiresApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
-// import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
-//import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -37,11 +37,11 @@ import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedButton
@@ -67,145 +67,36 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
 import com.example.rockland.R
+import com.example.rockland.presentation.model.UiBanner
+import com.example.rockland.presentation.viewmodel.CollectionEvent
+import com.example.rockland.presentation.viewmodel.CollectionViewModel
+import com.example.rockland.presentation.viewmodel.UserViewModel
+import com.example.rockland.ui.components.TopBannerHost
 import com.example.rockland.ui.theme.BackgroundLight
 import com.example.rockland.ui.theme.Rock1
 import com.example.rockland.ui.theme.Rock3
 import com.example.rockland.ui.theme.TextDark
-import com.example.rockland.presentation.viewmodel.CollectionViewModel
-import com.example.rockland.presentation.viewmodel.CollectionEvent
-import com.example.rockland.presentation.viewmodel.UserViewModel
 import com.google.firebase.firestore.FirebaseFirestoreException
 import com.google.firebase.firestore.ktx.firestore
+import com.google.firebase.functions.ktx.functions
 import com.google.firebase.ktx.Firebase
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.tasks.await
-import kotlinx.coroutines.withContext
-import org.tensorflow.lite.Interpreter
-import java.io.BufferedReader
-import java.io.InputStreamReader
-import java.nio.ByteBuffer
-import java.nio.ByteOrder
-import android.content.ContentValues
-//import androidx.compose.runtime.collectAsState
-import com.example.rockland.ui.components.TopBannerHost
-//import androidx.compose.runtime.mutableStateOf
-//import androidx.compose.runtime.remember
-//import androidx.compose.runtime.getValue
-//import androidx.compose.runtime.setValue
-//import androidx.compose.runtime.LaunchedEffect
-import com.example.rockland.presentation.model.UiBanner
-//import com.example.rockland.ui.components.TopBannerHost
+import java.io.ByteArrayOutputStream
+import androidx.compose.runtime.collectAsState
 
 
 private enum class AddState { Idle, Adding, Added }
 
-
-
-
-// ---------------------------------------------------------------------
-// RockClassifier: loads the TFLite model + labels and runs inference.
-// ---------------------------------------------------------------------
-class RockClassifier(private val context: Context) {
-
-    private val imageSize = 224
-
-    private val interpreter: Interpreter by lazy {
-        val modelBytes = context.assets.open("rock_classifier_final.tflite").readBytes()
-        val bb = ByteBuffer.allocateDirect(modelBytes.size)
-        bb.order(ByteOrder.nativeOrder())
-        bb.put(modelBytes)
-        bb.rewind()
-        Interpreter(bb)
-    }
-
-    private val labels: List<String> by lazy {
-        val inputStream = context.assets.open("rock_classifier_labels.txt")
-        val reader = BufferedReader(InputStreamReader(inputStream))
-        reader.readLines().filter { it.isNotBlank() }
-    }
-
-    /**
-     * Run classification on the given image URI.
-     * Returns Pair<label, confidence>.
-     */
-    suspend fun classify(imageUri: Uri): Pair<String, Float> = withContext(Dispatchers.Default) {
-        val bitmap = loadAndResizeBitmap(imageUri)
-        classifyBitmap(bitmap)
-    }
-
-    suspend fun classifyAsset(assetPath: String): Pair<String, Float> = withContext(Dispatchers.Default) {
-        val bitmap = loadAndResizeBitmapFromAssets(assetPath)
-        classifyBitmap(bitmap)
-    }
-
-    private fun classifyBitmap(bitmap: Bitmap): Pair<String, Float> {
-        val input = bitmapToBuffer(bitmap)
-        val output = Array(1) { FloatArray(labels.size) }
-
-        interpreter.run(input, output)
-        val probs = output[0]
-
-        var maxIdx = 0
-        var maxVal = Float.NEGATIVE_INFINITY
-        for (i in probs.indices) {
-            if (probs[i] > maxVal) {
-                maxVal = probs[i]
-                maxIdx = i
-            }
-        }
-        val label = labels.getOrElse(maxIdx) { "Unknown" }
-        return label to maxVal
-    }
-
-    private fun loadAndResizeBitmap(uri: Uri): Bitmap {
-        val original: Bitmap = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-            decodeBitmapApi28(uri)
-        } else {
-            @Suppress("DEPRECATION")
-            MediaStore.Images.Media.getBitmap(context.contentResolver, uri)
-        }
-        return Bitmap.createScaledBitmap(original, imageSize, imageSize, true)
-    }
-
-    private fun loadAndResizeBitmapFromAssets(assetPath: String): Bitmap {
-        val original = context.assets.open(assetPath).use { input ->
-            BitmapFactory.decodeStream(input)
-        }
-        requireNotNull(original) { "Failed to decode asset image: $assetPath" }
-        return Bitmap.createScaledBitmap(original, imageSize, imageSize, true)
-    }
-
-    @RequiresApi(Build.VERSION_CODES.P)
-    private fun decodeBitmapApi28(uri: Uri): Bitmap {
-        val source = ImageDecoder.createSource(context.contentResolver, uri)
-        return ImageDecoder.decodeBitmap(source) { decoder, _, _ ->
-            decoder.isMutableRequired = true
-        }
-    }
-
-    private fun bitmapToBuffer(bitmap: Bitmap): ByteBuffer {
-        val buffer =
-            ByteBuffer.allocateDirect(4 * imageSize * imageSize * 3).order(ByteOrder.nativeOrder())
-        val intValues = IntArray(imageSize * imageSize)
-        bitmap.getPixels(intValues, 0, imageSize, 0, 0, imageSize, imageSize)
-
-        var pixel = 0
-        repeat(imageSize) {
-            repeat(imageSize) {
-                val v = intValues[pixel++]
-                val r = ((v shr 16) and 0xFF) / 255f
-                val g = ((v shr 8) and 0xFF) / 255f
-                val b = (v and 0xFF) / 255f
-                buffer.putFloat(r)
-                buffer.putFloat(g)
-                buffer.putFloat(b)
-            }
-        }
-        buffer.rewind()
-        return buffer
-    }
-
-}
+/*
+================================================================================
+REMOVED / NOT NEEDED (commented out) FOR CLOUD VERSION
+================================================================================
+- RockClassifier + TensorFlow Lite imports and code (you are using Cloud Functions now)
+- kotlinx.coroutines.Dispatchers / withContext (only needed for on-device inference)
+- org.tensorflow.lite.Interpreter, ByteBuffer, ByteOrder, BufferedReader, InputStreamReader
+- @RequiresApi / decodeBitmapApi28 helper (not needed; we decode directly in uriToBase64Jpeg)
+================================================================================
+*/
 
 // ---------------------------------------------------------------------
 // UI state for the identifier flow.
@@ -231,16 +122,15 @@ fun IdentifierScreen(
     userViewModel: UserViewModel
 ) {
     val context = LocalContext.current
-    val classifier = remember { RockClassifier(context) }
 
     var uiState by remember { mutableStateOf<ScanUiState>(ScanUiState.Idle) }
 
-    // When uiState becomes Loading, run the model.
+    // When uiState becomes Loading, call Cloud Function.
     LaunchedEffect(uiState) {
         when (val s = uiState) {
             is ScanUiState.Loading -> {
                 try {
-                    val (label, confidence) = classifier.classify(s.imageUri)
+                    val (label, confidence) = scanRockWithCloudFunction(context, s.imageUri)
                     uiState = ScanUiState.Success(
                         imageUri = s.imageUri,
                         rockName = label,
@@ -248,26 +138,27 @@ fun IdentifierScreen(
                     )
                 } catch (e: Exception) {
                     uiState = ScanUiState.Error(
-                        "Failed to identify rock. Please try again.\n${e.message ?: ""}"
+                        "Failed to identify rock (cloud). Please try again.\n${e.message ?: ""}"
                     )
                 }
             }
+
             is ScanUiState.LoadingAsset -> {
                 try {
-                    // 1. run classifier
-                    val (label, confidence) = classifier.classifyAsset(s.assetPath)
-
-                    // 2. Create a REAL Uri by copying the asset image into MediaStore
+                    // Convert asset -> MediaStore Uri, then call cloud
                     val savedUri = saveAssetImageToMediaStore(context, s.assetPath)
+                        ?: throw IllegalStateException("Failed to convert asset to Uri")
+
+                    val (label, confidence) = scanRockWithCloudFunction(context, savedUri)
 
                     uiState = ScanUiState.Success(
-                        imageUri = savedUri ?: Uri.EMPTY,
+                        imageUri = savedUri,
                         rockName = label,
                         confidence = confidence
                     )
                 } catch (e: Exception) {
                     uiState = ScanUiState.Error(
-                        "Failed to identify rock. Please try again.\n${e.message ?: ""}"
+                        "Failed to identify rock (cloud). Please try again.\n${e.message ?: ""}"
                     )
                 }
             }
@@ -300,10 +191,7 @@ fun IdentifierScreen(
                 )
             }
 
-            is ScanUiState.Loading -> {
-                IdentifierLoadingScreen()
-            }
-
+            is ScanUiState.Loading,
             is ScanUiState.LoadingAsset -> {
                 IdentifierLoadingScreen()
             }
@@ -356,13 +244,9 @@ fun IdentifierHome(
     ) { bitmap ->
         bitmap?.let {
             val uri = saveBitmapToMediaStore(context, it)
-            if (uri != null) {
-                onImageSelected(uri)
-            }
+            if (uri != null) onImageSelected(uri)
         }
     }
-
-
 
     Box(
         modifier = Modifier
@@ -390,7 +274,6 @@ fun IdentifierHome(
                     .clip(RoundedCornerShape(32.dp))
                     .background(Rock3)
             ) {
-                // Fill image for the scan panel (not the whole page background).
                 AsyncImage(
                     model = "file:///android_asset/scanner_background.jpg",
                     contentDescription = null,
@@ -459,7 +342,7 @@ fun IdentifierHome(
                 )
             }
 
-            // Debug helper: choose a sample image from app assets to run the model without emulator gallery setup.
+            // Debug helper: choose a sample image from app assets
             if (isDebuggable && sampleImages.isNotEmpty()) {
                 Spacer(modifier = Modifier.height(12.dp))
 
@@ -496,7 +379,6 @@ fun IdentifierHome(
                     }
                 }
             }
-
 
             Spacer(modifier = Modifier.height(8.dp))
         }
@@ -567,7 +449,10 @@ fun IdentifierErrorScreen(message: String, onRetry: () -> Unit) {
     }
 }
 
-// adds image of the rock from rock identifier into user's personal collection
+// ---------------------------------------------------------------------
+// Helpers for camera/gallery/asset -> Uri and Uri -> base64
+// ---------------------------------------------------------------------
+
 private fun saveBitmapToMediaStore(
     context: Context,
     bitmap: Bitmap
@@ -591,7 +476,6 @@ private fun saveBitmapToMediaStore(
     return uri
 }
 
-// fix issue of assets/sample images not working
 private fun saveAssetImageToMediaStore(context: Context, assetPath: String): Uri? {
     return try {
         val bitmap = context.assets.open(assetPath).use { input ->
@@ -604,8 +488,52 @@ private fun saveAssetImageToMediaStore(context: Context, assetPath: String): Uri
     }
 }
 
+private fun uriToBase64Jpeg(context: Context, uri: Uri, quality: Int = 80): String {
+    val bitmap: Bitmap = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+        val source = ImageDecoder.createSource(context.contentResolver, uri)
+        ImageDecoder.decodeBitmap(source)
+    } else {
+        @Suppress("DEPRECATION")
+        MediaStore.Images.Media.getBitmap(context.contentResolver, uri)
+    }
 
+    val baos = ByteArrayOutputStream()
+    bitmap.compress(Bitmap.CompressFormat.JPEG, quality, baos)
+    return Base64.encodeToString(baos.toByteArray(), Base64.NO_WRAP)
+}
+
+// ---------------------------------------------------------------------
+// Cloud Function call
+// ---------------------------------------------------------------------
+private suspend fun scanRockWithCloudFunction(
+    context: Context,
+    imageUri: Uri
+): Pair<String, Float> {
+
+    val functions = Firebase.functions("us-central1")
+
+    val base64 = uriToBase64Jpeg(context, imageUri)
+    val data = hashMapOf("image" to base64)
+
+
+    val result = functions
+        .getHttpsCallable("scanRockImage")
+        .call(data)
+        .await()
+
+    val map = (result.getData() as? Map<*, *>)
+        ?: throw IllegalStateException("Invalid response from scanRockImage")
+
+    val rockName = map["rockName"]?.toString() ?: "Unknown"
+    val confidence = (map["confidence"] as? Number)?.toFloat() ?: 0f
+
+    return rockName to confidence
+}
+
+
+// ---------------------------------------------------------------------
 // Result screen shown after a rock has been identified.
+// ---------------------------------------------------------------------
 @Composable
 fun IdentifierResultScreen(
     imageUri: Uri,
@@ -616,11 +544,9 @@ fun IdentifierResultScreen(
     userViewModel: UserViewModel,
     collectionViewModel: CollectionViewModel = viewModel()
 ) {
-    // ---------- Firestore state ----------
     val db = Firebase.firestore
-    val context = androidx.compose.ui.platform.LocalContext.current
-    // `collectionRockId` is what we will store in user's collection as the stable identifier.
-    // Prefer numeric `rockID` from Firestore when available.
+    val context = LocalContext.current
+
     var collectionRockId by remember(rockKey) { mutableStateOf(rockKey.trim().lowercase()) }
 
     var rockDesc by remember { mutableStateOf<String?>(null) }
@@ -633,7 +559,6 @@ fun IdentifierResultScreen(
     var addState by remember { mutableStateOf(AddState.Idle) }
     var pendingAddRockId by remember { mutableStateOf<String?>(null) }
 
-    // Fetch rock details whenever the detected name changes
     LaunchedEffect(rockName) {
         isLoading = true
         errorMsg = null
@@ -675,7 +600,6 @@ fun IdentifierResultScreen(
         }
     }
 
-    // Forward collection add results to the global top banner.
     LaunchedEffect(Unit) {
         collectionViewModel.events.collect { evt ->
             when (evt) {
@@ -699,14 +623,14 @@ fun IdentifierResultScreen(
         }
     }
 
-    // for image upload for rocks already in collection from scan
+    val uiState by collectionViewModel.uiState.collectAsState()
+
     val alreadyInCollection =
-        collectionViewModel.uiState.value.items.any { item ->
+        uiState.items.any { item ->
             item.rockId == collectionRockId ||
                     item.rockName.equals(rockName, ignoreCase = true)
         }
 
-    // ---------- UI ----------
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -863,7 +787,6 @@ fun IdentifierResultScreen(
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
 
-            // 1) Add to Collection (or disabled “You already have this Rock!”)
             Button(
                 onClick = {
                     if (alreadyInCollection) {
@@ -907,7 +830,6 @@ fun IdentifierResultScreen(
                 )
             }
 
-            // 2) Add Image of Rock into Collection Entry
             OutlinedButton(
                 onClick = {
                     val uriToUpload = if (imageUri != Uri.EMPTY) imageUri else null
@@ -923,8 +845,8 @@ fun IdentifierResultScreen(
                         thumbnailUrl = rockImageUrl,
                         imageUri = uriToUpload,
                         context = context
-                    ) }
-                ,
+                    )
+                },
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(56.dp),
@@ -934,7 +856,6 @@ fun IdentifierResultScreen(
                 Text("Add Image of Rock into Collection Entry", fontSize = 14.sp, fontWeight = FontWeight.Bold)
             }
 
-            // 3) Suspect an Error? (red)
             OutlinedButton(
                 onClick = {
                     userViewModel.showInfo("<<insert popup window for reporting of rock identification errors>>")
@@ -949,7 +870,6 @@ fun IdentifierResultScreen(
                 Text("Suspect an Error?", fontSize = 14.sp, fontWeight = FontWeight.Bold)
             }
 
-            // 4) Scan Again
             Button(
                 onClick = onScanAgain,
                 modifier = Modifier
@@ -963,9 +883,3 @@ fun IdentifierResultScreen(
         }
     }
 }
-
-
-
-
-
-
