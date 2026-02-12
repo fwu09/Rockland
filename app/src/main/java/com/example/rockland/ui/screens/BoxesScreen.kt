@@ -1,5 +1,12 @@
 package com.example.rockland.ui.screens
 
+import androidx.compose.runtime.getValue
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -10,15 +17,17 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.Divider
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -34,16 +43,19 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.rockland.data.repository.CollectionRepository
 import com.example.rockland.ui.theme.Rock1
 import com.example.rockland.ui.theme.TextDark
 import com.google.firebase.auth.FirebaseAuth
-import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.FieldValue
+import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.SetOptions
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
@@ -53,8 +65,6 @@ import kotlin.random.Random
 fun BoxesScreen(userId: String?) {
     val db = remember { FirebaseFirestore.getInstance() }
     val scope = rememberCoroutineScope()
-
-    // ✅ Auth state listener (prevents "request.auth == null" race)
     val authUserIdState = remember { mutableStateOf<String?>(FirebaseAuth.getInstance().currentUser?.uid) }
 
     DisposableEffect(Unit) {
@@ -66,22 +76,20 @@ fun BoxesScreen(userId: String?) {
         onDispose { auth.removeAuthStateListener(listener) }
     }
 
-    // Prefer the passed-in userId only if you KNOW it equals auth uid.
-    // Most projects store users/{uid}. So we use auth uid as source of truth.
     val resolvedUserId = authUserIdState.value ?: userId
 
-    // Inventory state (from Firestore)
     val commonCount = rememberSaveable { mutableIntStateOf(0) }
     val rareCount = rememberSaveable { mutableIntStateOf(0) }
     val specialCount = rememberSaveable { mutableIntStateOf(0) }
 
-    // UI state
     val isLoading = remember { mutableStateOf(true) }
     val errorMsg = remember { mutableStateOf<String?>(null) }
     val resultDialog = remember { mutableStateOf<BoxOpenResult?>(null) }
-    val opening = remember { mutableStateOf(false) }
+    // Opening flags per box
+    val isOpeningCommon = remember { mutableStateOf(false) }
+    val isOpeningRare = remember { mutableStateOf(false) }
+    val isOpeningSpecial = remember { mutableStateOf(false) }
 
-    // ✅ Only load after auth is ready (no permission denied flicker)
     LaunchedEffect(resolvedUserId) {
         if (resolvedUserId.isNullOrBlank()) {
             isLoading.value = false
@@ -105,7 +113,6 @@ fun BoxesScreen(userId: String?) {
         }
     }
 
-    // If auth not ready or user not logged in
     if (resolvedUserId.isNullOrBlank()) {
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -129,7 +136,11 @@ fun BoxesScreen(userId: String?) {
             .background(Color(0xFFF5F5F5))
             .padding(horizontal = 16.dp, vertical = 12.dp)
     ) {
-        Column(modifier = Modifier.fillMaxSize()) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+        ) {
             Text(
                 text = "Boxes",
                 style = MaterialTheme.typography.headlineSmall,
@@ -142,6 +153,17 @@ fun BoxesScreen(userId: String?) {
                 fontSize = 12.sp,
                 color = TextDark.copy(alpha = 0.75f)
             )
+
+            Spacer(Modifier.height(10.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceEvenly
+            ) {
+                StatChip(icon = "📦", count = commonCount.intValue)
+                StatChip(icon = "🎁", count = rareCount.intValue)
+                StatChip(icon = "💎", count = specialCount.intValue)
+            }
 
             Spacer(Modifier.height(12.dp))
 
@@ -178,67 +200,101 @@ fun BoxesScreen(userId: String?) {
                     }
                 }
             } else {
-                Spacer(Modifier.height(4.dp))
-                InventoryCards(
-                    commonCount = commonCount.intValue,
-                    rareCount = rareCount.intValue,
-                    specialCount = specialCount.intValue,
-                    opening = opening.value,
-                    onOpenCommon = {
-                        if (commonCount.intValue <= 0) return@InventoryCards
-                        scope.launch {
-                            openBox(
-                                db = db,
-                                userId = resolvedUserId,
-                                boxId = "common",
-                                onStart = { opening.value = true },
-                                onDone = { opening.value = false },
-                                onError = { errorMsg.value = it },
-                                onResult = { result ->
-                                    commonCount.intValue = (commonCount.intValue - 1).coerceAtLeast(0)
-                                    resultDialog.value = result
-                                }
+                val total = commonCount.intValue + rareCount.intValue + specialCount.intValue
+
+                if (total == 0) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 18.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text("😢", fontSize = 44.sp)
+                            Spacer(Modifier.height(10.dp))
+                            Text(
+                                "No boxes yet!",
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = TextDark
                             )
-                        }
-                    },
-                    onOpenRare = {
-                        if (rareCount.intValue <= 0) return@InventoryCards
-                        scope.launch {
-                            openBox(
-                                db = db,
-                                userId = resolvedUserId,
-                                boxId = "rare",
-                                onStart = { opening.value = true },
-                                onDone = { opening.value = false },
-                                onError = { errorMsg.value = it },
-                                onResult = { result ->
-                                    rareCount.intValue = (rareCount.intValue - 1).coerceAtLeast(0)
-                                    resultDialog.value = result
-                                }
-                            )
-                        }
-                    },
-                    onOpenSpecial = {
-                        if (specialCount.intValue <= 0) return@InventoryCards
-                        scope.launch {
-                            openBox(
-                                db = db,
-                                userId = resolvedUserId,
-                                boxId = "special",
-                                onStart = { opening.value = true },
-                                onDone = { opening.value = false },
-                                onError = { errorMsg.value = it },
-                                onResult = { result ->
-                                    specialCount.intValue = (specialCount.intValue - 1).coerceAtLeast(0)
-                                    resultDialog.value = result
-                                }
+                            Spacer(Modifier.height(6.dp))
+                            Text(
+                                "Complete missions to earn rewards.",
+                                fontSize = 12.sp,
+                                color = TextDark.copy(alpha = 0.65f),
+                                textAlign = TextAlign.Center,
+                                modifier = Modifier.padding(horizontal = 24.dp)
                             )
                         }
                     }
-                )
 
-                Spacer(Modifier.height(12.dp))
-                InfoCard()
+                    Spacer(Modifier.height(14.dp))
+                    InfoCard()
+                } else {
+                    InventoryCards(
+                        commonCount = commonCount.intValue,
+                        rareCount = rareCount.intValue,
+                        specialCount = specialCount.intValue,
+                        openingCommon = isOpeningCommon.value,
+                        openingRare = isOpeningRare.value,
+                        openingSpecial = isOpeningSpecial.value,
+                        onOpenCommon = {
+                            if (commonCount.intValue <= 0) return@InventoryCards
+                            scope.launch {
+                                openBox(
+                                    db = db,
+                                    userId = resolvedUserId,
+                                    boxId = "common",
+                                    onStart = { isOpeningCommon.value = true },
+                                    onDone = { isOpeningCommon.value = false },
+                                    onError = { errorMsg.value = it },
+                                    onResult = { result ->
+                                        commonCount.intValue = (commonCount.intValue - 1).coerceAtLeast(0)
+                                        resultDialog.value = result
+                                    }
+                                )
+                            }
+                        },
+                        onOpenRare = {
+                            if (rareCount.intValue <= 0) return@InventoryCards
+                            scope.launch {
+                                openBox(
+                                    db = db,
+                                    userId = resolvedUserId,
+                                    boxId = "rare",
+                                    onStart = { isOpeningRare.value = true },
+                                    onDone = { isOpeningRare.value = false },
+                                    onError = { errorMsg.value = it },
+                                    onResult = { result ->
+                                        rareCount.intValue = (rareCount.intValue - 1).coerceAtLeast(0)
+                                        resultDialog.value = result
+                                    }
+                                )
+                            }
+                        },
+                        onOpenSpecial = {
+                            if (specialCount.intValue <= 0) return@InventoryCards
+                            scope.launch {
+                                openBox(
+                                    db = db,
+                                    userId = resolvedUserId,
+                                    boxId = "special",
+                                    onStart = { isOpeningSpecial.value = true },
+                                    onDone = { isOpeningSpecial.value = false },
+                                    onError = { errorMsg.value = it },
+                                    onResult = { result ->
+                                        specialCount.intValue = (specialCount.intValue - 1).coerceAtLeast(0)
+                                        resultDialog.value = result
+                                    }
+                                )
+                            }
+                        }
+                    )
+
+                    Spacer(Modifier.height(12.dp))
+                    InfoCard()
+                }
             }
         }
 
@@ -252,36 +308,80 @@ fun BoxesScreen(userId: String?) {
 }
 
 @Composable
+private fun StatChip(icon: String, count: Int) {
+    Box(
+        modifier = Modifier
+            .clip(RoundedCornerShape(50))
+            .background(Rock1.copy(alpha = 0.15f))
+            .padding(horizontal = 12.dp, vertical = 6.dp)
+    ) {
+        Text(
+            text = "$icon x$count",
+            fontWeight = FontWeight.SemiBold,
+            color = TextDark
+        )
+    }
+}
+
+@Composable
 private fun InventoryCards(
     commonCount: Int,
     rareCount: Int,
     specialCount: Int,
-    opening: Boolean,
+    openingCommon: Boolean,
+    openingRare: Boolean,
+    openingSpecial: Boolean,
     onOpenCommon: () -> Unit,
     onOpenRare: () -> Unit,
     onOpenSpecial: () -> Unit
 ) {
-    LazyColumn(
+    Column(
         modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        items(
-            listOf(
-                BoxUi("Common Box", "Daily mission rewards", commonCount, Rock1.copy(alpha = 0.18f)),
-                BoxUi("Rare Box", "Weekly mission rewards", rareCount, Rock1.copy(alpha = 0.22f)),
-                BoxUi("Special Box", "Monthly leaderboard rewards", specialCount, Rock1.copy(alpha = 0.26f))
+        listOf(
+            BoxUi("Common Box", "Daily mission rewards", commonCount, Color(0xFFBDBDBD), "📦"),
+            BoxUi("Rare Box", "Weekly mission rewards", rareCount, Color(0xFF4A90E2), "🎁"),
+            BoxUi("Special Box", "Monthly leaderboard rewards", specialCount, Color(0xFF9C27B0), "💎")
+        ).forEach { item ->
+            val borderColor = item.accent
+            val bgGlow = Brush.verticalGradient(
+                colors = listOf(
+                    item.accent.copy(alpha = 0.14f),
+                    Color.White
+                )
             )
-        ) { item ->
+
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 colors = CardDefaults.cardColors(containerColor = Color.White),
-                shape = RoundedCornerShape(16.dp)
+                shape = RoundedCornerShape(16.dp),
+                border = BorderStroke(1.dp, borderColor.copy(alpha = 0.6f)),
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
             ) {
-                Column(modifier = Modifier.padding(12.dp)) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(bgGlow)
+                        .padding(12.dp)
+                ) {
+
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
+                        Box(
+                            modifier = Modifier
+                                .size(56.dp)
+                                .clip(RoundedCornerShape(16.dp))
+                                .background(item.accent.copy(alpha = 0.22f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(item.emoji, fontSize = 28.sp)
+                        }
+
+                        Spacer(Modifier.width(12.dp))
+
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
                                 text = item.title,
@@ -296,10 +396,11 @@ private fun InventoryCards(
                                 color = TextDark.copy(alpha = 0.7f)
                             )
                         }
+
                         Box(
                             modifier = Modifier
                                 .clip(RoundedCornerShape(12.dp))
-                                .background(item.badgeColor)
+                                .background(item.accent.copy(alpha = 0.18f))
                                 .padding(horizontal = 10.dp, vertical = 6.dp)
                         ) {
                             Text(
@@ -312,11 +413,39 @@ private fun InventoryCards(
                     }
 
                     Spacer(Modifier.height(10.dp))
-                    Divider(color = Color(0xFFEAEAEA))
+                    HorizontalDivider(color = Color(0xFFEAEAEA))
                     Spacer(Modifier.height(10.dp))
+
+                    val opening = when (item.title) {
+                        "Common Box" -> openingCommon
+                        "Rare Box" -> openingRare
+                        "Special Box" -> openingSpecial
+                        else -> false
+                    }
+
+                    if (opening) {
+                        LinearProgressIndicator(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(4.dp),
+                            color = Rock1
+                        )
+                        Spacer(Modifier.height(10.dp))
+                    }
 
                     val canOpen = item.count > 0 && !opening
                     val buttonLabel = if (opening) "Opening..." else "Open"
+
+                    val infiniteTransition = rememberInfiniteTransition(label = "pulse")
+                    val pulseScale by infiniteTransition.animateFloat(
+                        initialValue = 1f,
+                        targetValue = 1.05f,
+                        animationSpec = infiniteRepeatable(
+                            animation = tween(800),
+                            repeatMode = RepeatMode.Reverse
+                        ),
+                        label = "pulseScale"
+                    )
 
                     Button(
                         onClick = {
@@ -327,7 +456,14 @@ private fun InventoryCards(
                             }
                         },
                         enabled = canOpen,
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .graphicsLayer {
+                                if (item.count > 0 && !opening) {
+                                    scaleX = pulseScale
+                                    scaleY = pulseScale
+                                }
+                            },
                         shape = RoundedCornerShape(14.dp),
                         colors = ButtonDefaults.buttonColors(
                             containerColor = Rock1,
@@ -338,7 +474,7 @@ private fun InventoryCards(
                     }
 
                     if (item.count <= 0) {
-                        Spacer(Modifier.height(6.dp))
+                        Spacer(Modifier.height(8.dp))
                         Text(
                             text = "No boxes available. Complete missions to earn more.",
                             fontSize = 11.sp,
@@ -381,7 +517,8 @@ private data class BoxUi(
     val title: String,
     val subtitle: String,
     val count: Int,
-    val badgeColor: Color
+    val accent: Color,
+    val emoji: String
 )
 
 private data class BoxOpenResult(
@@ -399,30 +536,46 @@ private fun BoxOpenResultDialog(
         onDismissRequest = onDismiss,
         title = {
             Text(
-                text = "You opened a ${result.boxId.replaceFirstChar { it.uppercase() }} Box!",
+                text = "🎉 You opened a ${result.boxId.replaceFirstChar { it.uppercase() }} Box!",
                 fontWeight = FontWeight.Bold
             )
         },
         text = {
-            Column {
-                Text(
-                    text = "Rarity: ${result.rarity.replace('_', ' ').uppercase()}",
-                    fontWeight = FontWeight.SemiBold
-                )
-                Spacer(Modifier.height(8.dp))
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text("🎁 You Got!", fontSize = 14.sp, color = TextDark.copy(alpha = 0.8f))
+                Spacer(Modifier.height(12.dp))
+
                 Text(
                     text = result.rockName,
-                    fontSize = 18.sp,
+                    fontSize = 22.sp,
                     fontWeight = FontWeight.Bold,
-                    color = TextDark,
+                    color = Rock1,
                     textAlign = TextAlign.Center,
                     modifier = Modifier.fillMaxWidth()
                 )
+
                 Spacer(Modifier.height(8.dp))
+
+                val rarityColor = when (result.rarity.lowercase()) {
+                    "common" -> Color.Gray
+                    "rare" -> Color(0xFF4A90E2)
+                    else -> Color(0xFF9C27B0)
+                }
+
                 Text(
-                    text = "Duplicates are possible.",
+                    text = result.rarity.replace('_', ' ').uppercase(),
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = rarityColor
+                )
+
+                Spacer(Modifier.height(10.dp))
+
+                Text(
+                    text = "Added to your collection! (Duplicates possible)",
                     fontSize = 12.sp,
-                    color = TextDark.copy(alpha = 0.7f)
+                    color = TextDark.copy(alpha = 0.7f),
+                    textAlign = TextAlign.Center
                 )
             }
         },
@@ -443,7 +596,6 @@ private suspend fun openBox(
 ) {
     onStart()
     try {
-        // 1) Read box definition
         val boxDoc = db.collection("boxes").document(boxId).get().await()
         if (!boxDoc.exists()) {
             onError("Box '$boxId' not found in Firestore collection 'boxes'.")
@@ -469,7 +621,6 @@ private suspend fun openBox(
             return
         }
 
-        // 2) Pick rarity using weights
         val pickedRarity = weightedPick(rarityChances)
         val rocksForRarity = poolByRarity[pickedRarity].orEmpty()
         if (rocksForRarity.isEmpty()) {
@@ -477,13 +628,10 @@ private suspend fun openBox(
             return
         }
 
-        // 3) Pick a rock within that rarity
         val rockName = rocksForRarity.random()
 
-        // 4) Update user inventory (decrement) + log history + add to collection
         val userRef = db.collection("users").document(userId)
 
-        // Read current inventory safely
         val userDoc = userRef.get().await()
         val inv = (userDoc.get("boxInventory") as? Map<*, *>)
         val current = (inv?.get(boxId) as? Long ?: 0L).toInt()
@@ -495,10 +643,8 @@ private suspend fun openBox(
 
         val newCount = current - 1
 
-        // ✅ Update only the one key inside boxInventory (won't overwrite whole map)
         userRef.update("boxInventory.$boxId", newCount).await()
 
-        // Log open history
         val historyData = mapOf(
             "boxId" to boxId,
             "rarity" to pickedRarity,
@@ -507,12 +653,10 @@ private suspend fun openBox(
         )
         userRef.collection("boxOpenHistory").add(historyData).await()
 
-        // ✅ Add to user's collection (duplicates -> increment count)
         addRockToUserCollection(
             db = db,
             userId = userId,
             rockName = rockName,
-            rarity = pickedRarity,
             sourceBoxId = boxId
         )
 
@@ -523,35 +667,49 @@ private suspend fun openBox(
         onDone()
     }
 }
+
 private suspend fun addRockToUserCollection(
     db: FirebaseFirestore,
     userId: String,
     rockName: String,
-    rarity: String,
     sourceBoxId: String
 ) {
-    val userRef = db.collection("users").document(userId)
+    val repository = CollectionRepository()
 
-    // Use rock name as docId (simple). If you prefer rockId, swap this later.
-    val rockDocId = rockName.trim().lowercase().replace(" ", "_")
+    try {
+        // Try to resolve the rock's numeric ID and thumbnail from the rock dictionary.
+        val rockSnapshot = db.collection("rock")
+            .whereEqualTo("rockName", rockName)
+            .limit(1)
+            .get()
+            .await()
 
-    val collectionRef = userRef.collection("collection").document(rockDocId)
+        val rockDoc = rockSnapshot.documents.firstOrNull()
+        val resolvedRockId = (rockDoc?.getLong("rockID") ?: 0L)
+            .takeIf { it > 0L }
+            ?.toString()
+            ?: rockName.trim().lowercase().replace(" ", "_")
 
-    // Merge-safe:
-    // - if first time: create doc with count = 1
-    // - if duplicate: increment count
-    val data = mapOf(
-        "rockId" to rockDocId,
-        "rockName" to rockName,
-        "rarity" to rarity,
-        "count" to FieldValue.increment(1),
-        "lastObtainedAt" to System.currentTimeMillis(),
-        "obtainedFrom" to "box:$sourceBoxId"
-    )
+        val resolvedThumbnail = rockDoc?.getString("rockImageUrl")
 
-    collectionRef.set(data, SetOptions.merge()).await()
+        repository.addRockToCollection(
+            userId = userId,
+            rockId = resolvedRockId,
+            rockSource = "box:$sourceBoxId",
+            rockName = rockName,
+            thumbnailUrl = resolvedThumbnail
+        )
+
+        db.collection("users").document(userId)
+            .set(
+                mapOf("unlockedRockIds" to FieldValue.arrayUnion(resolvedRockId)),
+                SetOptions.merge()
+            )
+            .await()
+    } catch (e: Exception) {
+        throw IllegalStateException("Failed to add '$rockName' to collection: ${e.message}", e)
+    }
 }
-
 
 private fun weightedPick(weights: Map<String, Int>): String {
     val safe = weights.filterValues { it > 0 }

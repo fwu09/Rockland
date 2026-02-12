@@ -1,4 +1,3 @@
-// Shows nearby rock locations and lets users recenter or view details.
 package com.example.rockland.ui.screens
 import android.Manifest
 import android.content.pm.PackageManager
@@ -197,7 +196,6 @@ fun MapScreen(
     val isVerifiedExpert = normalizedRole == "verified_expert"
     val isAdmin = normalizedRole == "admin" || normalizedRole == "user_admin"
 
-    // Location permission state
     val hasLocationPermission = remember { mutableStateOf(false) }
 
     val permissionLauncher = rememberLauncherForActivityResult(
@@ -295,7 +293,6 @@ fun MapScreen(
             onDismiss = { showDetailsDialog.value = false }
         )
     }
-    // show popup dialog when photo is selected in "Photos" section
     selectedPhotoForDialog.value?.let { photo ->
         val linkedComment = photo.commentId?.let { cid ->
             communityContent.comments.firstOrNull { it.commentId == cid }
@@ -322,7 +319,6 @@ fun MapScreen(
                             .height(220.dp)
                             .clip(RoundedCornerShape(14.dp))
                     )
-                    // show linked comment/original comment photo is from
                     if (linkedComment != null) {
                         Text(linkedComment.text, style = MaterialTheme.typography.bodyMedium)
                         Text(
@@ -330,7 +326,7 @@ fun MapScreen(
                             style = MaterialTheme.typography.bodySmall,
                             color = TextDark.copy(alpha = 0.6f)
                         )
-                    } else { //or show the caption that came with the photo input
+                    } else {
                         Text(photo.caption, style = MaterialTheme.typography.bodyMedium)
                     }
 
@@ -383,7 +379,6 @@ fun MapScreen(
                 )
             }
 
-            // User location marker (based on last "Locate me" press)
             userLocation?.let { coordinates ->
                 Marker(
                     state = MarkerState(coordinates),
@@ -392,7 +387,6 @@ fun MapScreen(
             }
         }
 
-        // Top search header with subtle card background
         Box(
             modifier = Modifier
                 .align(Alignment.TopCenter)
@@ -419,7 +413,7 @@ fun MapScreen(
             }
         }
 
-        // Locate button — moved to lower right to avoid overlapping compass
+
         IconButton(
             onClick = { viewModel.moveToUserLocation() },
             modifier = Modifier
@@ -464,7 +458,6 @@ fun MapScreen(
             }
         }
 
-        // Loading state
         if (uiState.isLoading) {
             Box(
                 modifier = Modifier
@@ -485,7 +478,6 @@ fun MapScreen(
                 }
             }
         } else if (uiState.locations.isEmpty()) {
-            // No rock data available (only after loading finished)
             Box(
                 modifier = Modifier
                     .align(Alignment.Center)
@@ -525,7 +517,6 @@ fun MapScreen(
             }
         }
 
-        // Location error message
         locationError?.let { message ->
             Box(
                 modifier = Modifier
@@ -538,7 +529,6 @@ fun MapScreen(
             }
         }
 
-        // Rock info card overlay, centered, dismissible by tapping outside
         AnimatedVisibility(
             visible = infoCardVisible.value && selectedLocation != null,
             enter = fadeIn(animationSpec = tween(200)) + scaleIn(
@@ -771,7 +761,7 @@ fun MapScreen(
                             Box(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .heightIn(max = 260.dp) // a bit taller for preview
+                                    .heightIn(max = 260.dp)
                                     .verticalScroll(commentFormScroll)
                             ) {
                                 CommunityInputForm(

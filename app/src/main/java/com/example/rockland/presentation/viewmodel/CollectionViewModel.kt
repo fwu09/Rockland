@@ -14,6 +14,7 @@ import com.example.rockland.data.repository.CollectionRepository
 import com.example.rockland.data.repository.Rock
 import com.example.rockland.data.repository.RockRepository
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.ListenerRegistration
 import com.google.firebase.ktx.Firebase
 import com.google.firebase.storage.ktx.storage
 import kotlinx.coroutines.Dispatchers
@@ -29,6 +30,9 @@ import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
 import java.util.UUID
 import kotlinx.coroutines.CancellationException
+
+import com.google.firebase.functions.FirebaseFunctions
+
 
 // Holds list data, loading, and banner-ready error for the collection screen.
 data class CollectionUiState(
@@ -51,6 +55,9 @@ class CollectionViewModel(
     private val awardsRepository = AwardsRepository()
     private val rockRepository = RockRepository()
     private val firestore = FirebaseFirestore.getInstance()
+    //new AI
+    private val functions = FirebaseFunctions.getInstance()
+
 
     private val _events = MutableSharedFlow<CollectionEvent>(extraBufferCapacity = 1)
     val events = _events.asSharedFlow()
@@ -63,6 +70,7 @@ class CollectionViewModel(
 
     private var migratedLegacyImagesForUid: String? = null
     private var cachedDictionaryRocks: List<Rock>? = null
+    private var collectionListener: ListenerRegistration? = null
 
     init {
         viewModelScope.launch {
@@ -79,6 +87,8 @@ class CollectionViewModel(
                     }
                     loadUserCollection(user.uid)
                 } else {
+                    collectionListener?.remove()
+                    collectionListener = null
                     _uiState.value = CollectionUiState(isLoading = false)
                 }
             }
@@ -99,20 +109,34 @@ class CollectionViewModel(
     // Loads the signed-in user's collection or shows an error.
     fun loadUserCollection(userId: String? = currentUserIdOrError()) {
         val uid = userId ?: return
-        viewModelScope.launch {
-            _uiState.value = _uiState.value.copy(isLoading = true, errorMessage = null)
-            try {
-                val items = repository.fetchCollection(uid)
-                val enriched = enrichThumbnailsFromDictionary(items)
-                _uiState.value = CollectionUiState(items = enriched, isLoading = false)
-            } catch (e: Exception) {
+        if (collectionListener != null) return
+
+        _uiState.value = _uiState.value.copy(isLoading = true, errorMessage = null)
+
+        collectionListener = repository.listenToCollection(
+            userId = uid,
+            onItems = { items ->
+                viewModelScope.launch {
+                    try {
+                        val enriched = enrichThumbnailsFromDictionary(items)
+                        _uiState.value = CollectionUiState(items = enriched, isLoading = false)
+                    } catch (e: Exception) {
+                        _uiState.value = CollectionUiState(
+                            items = emptyList(),
+                            isLoading = false,
+                            errorMessage = e.message ?: "Failed to load collection."
+                        )
+                    }
+                }
+            },
+            onError = { e ->
                 _uiState.value = CollectionUiState(
                     items = emptyList(),
                     isLoading = false,
                     errorMessage = e.message ?: "Failed to load collection."
                 )
             }
-        }
+        )
     }
 
     // Lazily loads rock dictionary and caches it in memory.
@@ -241,6 +265,12 @@ class CollectionViewModel(
                     notes,
                     userImageUrls
                 )
+                runCatching {
+                    val triggerResult = awardsRepository.applyTrigger(userId, "edit_personal_notes")
+                    triggerResult.messages.firstOrNull()?.let { message ->
+                        _events.tryEmit(CollectionEvent.Success(message, rockId = null))
+                    }
+                }
                 loadUserCollection(userId)
             } catch (e: Exception) {
                 _uiState.value = _uiState.value.copy(
@@ -441,4 +471,24 @@ class CollectionViewModel(
             }
         }
     }
+    fun testCloudFunction() {
+        viewModelScope.launch {
+            try {
+                val result = functions
+                    .getHttpsCallable("helloRockland")
+                    .call()
+                    .await()
+
+                val map = (result.getData() as? Map<*, *>)
+                    ?: throw IllegalStateException("Invalid response from helloRockland")
+
+                val msg = map["message"]?.toString() ?: "No message returned"
+                _events.tryEmit(CollectionEvent.Success(msg))
+            } catch (e: Exception) {
+                _events.tryEmit(CollectionEvent.Error("Cloud Function failed: ${e.message}"))
+            }
+        }
+    }
+
+
 }

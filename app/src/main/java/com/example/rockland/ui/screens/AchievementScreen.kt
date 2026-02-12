@@ -36,8 +36,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Tab
-import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -53,6 +51,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.FilterQuality
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -64,6 +64,10 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.ui.draw.rotate
 import androidx.lifecycle.viewmodel.compose.viewModel
+import coil.compose.AsyncImage
+import coil.request.ImageRequest
+import com.google.firebase.storage.FirebaseStorage
+import kotlinx.coroutines.tasks.await
 import com.example.rockland.data.model.AchievementDefinition
 import com.example.rockland.data.model.LeaderboardEntry
 import com.example.rockland.data.model.MissionDefinition
@@ -71,6 +75,54 @@ import com.example.rockland.data.model.MissionWithProgress
 import com.example.rockland.presentation.viewmodel.AwardsViewModel
 import com.example.rockland.ui.theme.Rock1
 import com.example.rockland.ui.theme.TextDark
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+
+// buttons ui improvement
+@Composable
+private fun NiceTopTabs(
+    tabs: List<String>,
+    selectedIndex: Int,
+    onSelected: (Int) -> Unit
+) {
+    val displayTabs = remember(tabs) {
+        tabs.map {
+            when (it) {
+                "Leaderboard" -> "Leaderboard"
+                "In-Progress" -> "In-Progress"
+                "Achievements" -> "Achievement"
+                else -> it // "All"
+            }
+        }
+    }
+    SingleChoiceSegmentedButtonRow(
+        modifier = Modifier
+            .fillMaxWidth(),
+    ) {
+        displayTabs.forEachIndexed { index, title ->
+            val selected = selectedIndex == index
+
+            SegmentedButton(
+                selected = selected,
+                onClick = { onSelected(index) },
+                shape = SegmentedButtonDefaults.itemShape(index = index, count = displayTabs.size),
+                label = {
+                    Text(
+                        text = title,
+                        fontSize = 11.sp,
+                        fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
+                        maxLines = 1
+                    )
+                },
+                modifier = Modifier
+                    // KEY: don’t let each item expand equally
+                    .padding(horizontal = 1.dp)
+            )
+        }
+    }
+}
+
 
 @Composable
 fun AchievementScreen(
@@ -85,13 +137,19 @@ fun AchievementScreen(
     val currentTab = selectedTabIndex ?: internalTab.intValue
     val setTab: (Int) -> Unit = onTabSelected ?: { internalTab.intValue = it }
     val uiState by viewModel.uiState.collectAsState()
+    val inProgressMissions = remember(uiState.missions) {
+        uiState.missions.filter { !it.completed }
+    }
+    val allMissions = remember(uiState.missions) {
+        uiState.missions.map { it.mission }
+    }
     val showAdminForm = remember { mutableStateOf(false) }
     val adminEditingMission = remember { mutableStateOf<MissionDefinition?>(null) }
     val adminEditingAchievement = remember { mutableStateOf<AchievementDefinition?>(null) }
     val missionToDelete = remember { mutableStateOf<MissionDefinition?>(null) }
     val achievementToDelete = remember { mutableStateOf<AchievementDefinition?>(null) }
 
-    LaunchedEffect(currentTab) {
+    LaunchedEffect(Unit) {
         viewModel.loadAwards()
     }
 
@@ -106,7 +164,7 @@ fun AchievementScreen(
                 .padding(horizontal = 16.dp, vertical = 12.dp)
         ) {
             Text(
-                text = "Awards",
+                text = "Rock Collection Missions",
                 style = MaterialTheme.typography.headlineSmall,
                 fontWeight = FontWeight.Bold,
                 color = TextDark
@@ -114,30 +172,23 @@ fun AchievementScreen(
 
             Spacer(modifier = Modifier.height(12.dp))
 
-            TabRow(
-                selectedTabIndex = currentTab,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                tabs.forEachIndexed { index, title ->
-                    Tab(
-                        selected = currentTab == index,
-                        onClick = { setTab(index) },
-                        text = { Text(title) }
-                    )
-                }
-            }
+            NiceTopTabs(
+                tabs = tabs,
+                selectedIndex = currentTab,
+                onSelected = { setTab(it) }
+            )
 
             Spacer(modifier = Modifier.height(12.dp))
 
             when (currentTab) {
                 0 -> LeaderboardTabContent(entries = uiState.leaderboard)
-                1 -> InProgressTabContent(missions = uiState.missions.filter { !it.completed })
+                1 -> InProgressTabContent(missions = inProgressMissions)
                 2 -> AllTabContent(
                     achievementsSummary = uiState.achievementsSummary,
                     missionsSummary = uiState.missionsSummary,
                     completedAchievements = uiState.completedAchievements,
                     completedMissions = uiState.completedMissions,
-                    allMissions = uiState.missions.map { it.mission },
+                    allMissions = allMissions,
                     allAchievements = uiState.allAchievements,
                     isAdmin = isAdmin,
                     onEditMission = { mission ->
@@ -155,7 +206,6 @@ fun AchievementScreen(
                 )
                 3 -> AchievementsTabContent(allAchievements = uiState.allAchievements)
             }
-
         }
 
         if (isAdmin && currentTab == 2) {
@@ -312,7 +362,7 @@ private fun InProgressTabContent(missions: List<MissionWithProgress>) {
                 EmptyState(text = "No active missions.")
             }
         } else {
-            items(missions) { mission ->
+            items(missions, key = { it.mission.id }) { mission ->
                 MissionCard(mission = mission)
             }
         }
@@ -328,10 +378,10 @@ private fun MissionCard(mission: MissionWithProgress) {
         label = "mission_progress"
     )
 
-    // ✅ Expand state
+    // Expand state
     var expanded by rememberSaveable(mission.mission.id) { mutableStateOf(false) }
 
-    // ✅ Rotate arrow
+    // Rotate arrow
     val arrowRotation by animateFloatAsState(
         targetValue = if (expanded) 180f else 0f,
         animationSpec = tween(200),
@@ -403,7 +453,7 @@ private fun MissionCard(mission: MissionWithProgress) {
                 color = Rock1
             )
 
-            // ✅ Expandable criteria section
+            // Expandable criteria section
             AnimatedVisibility(
                 visible = expanded,
                 enter = fadeIn(tween(120)) + expandVertically(tween(180)),
@@ -528,8 +578,8 @@ private fun AllTabContent(
         if (completedAchievements.isEmpty()) {
             item { EmptyState(text = "No achievements completed yet.") }
         } else {
-            items(completedAchievements) { achievement ->
-                SimpleListRow(text = achievement.title)
+            items(completedAchievements, key = { it.id }) { achievement ->
+                ExpandableAchievementRow(achievement = achievement)
             }
         }
 
@@ -540,8 +590,8 @@ private fun AllTabContent(
         if (completedMissions.isEmpty()) {
             item { EmptyState(text = "No missions completed yet.") }
         } else {
-            items(completedMissions) { mission ->
-                SimpleListRow(text = mission.mission.title)
+            items(completedMissions, key = { it.mission.id }) { mission ->
+                MissionCard(mission = mission)
             }
         }
 
@@ -768,48 +818,6 @@ private fun SectionHeader(title: String) {
 }
 
 @Composable
-private fun SimpleListRow(text: String) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = Color.White),
-        shape = RoundedCornerShape(16.dp)
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(12.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(8.dp)
-                    .clip(RoundedCornerShape(4.dp))
-                    .background(Rock1)
-            )
-            Spacer(modifier = Modifier.width(10.dp))
-            Text(
-                text = text,
-                fontSize = 14.sp,
-                color = TextDark,
-                modifier = Modifier.weight(1f)
-            )
-            Box(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(Rock1.copy(alpha = 0.12f))
-                    .padding(horizontal = 10.dp, vertical = 4.dp)
-            ) {
-                Text(
-                    text = "Completed",
-                    fontSize = 11.sp,
-                    color = Rock1
-                )
-            }
-        }
-    }
-}
-
-@Composable
 private fun EmptyState(text: String) {
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -879,6 +887,175 @@ private enum class AdminEntityKind {
     ACHIEVEMENT
 }
 
+// Simple in-memory cache to avoid resolving the same badge URL repeatedly.
+private val achievementBadgeUrlCache = mutableMapOf<String, String>()
+
+// achievement improved UI
+@Composable
+private fun ExpandableAchievementRow(achievement: AchievementDefinition) {
+    var expanded by rememberSaveable(achievement.id) { mutableStateOf(false) }
+    val badgeUrlState = remember(achievement.imageFile) { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(achievement.id, achievement.imageFile) {
+        val raw = achievement.imageFile.trim()
+        if (raw.isBlank()) {
+            badgeUrlState.value = null
+            return@LaunchedEffect
+        }
+
+        // First check in-memory cache so we do not hit storage repeatedly.
+        val cached = achievementBadgeUrlCache[raw]
+        if (cached != null) {
+            badgeUrlState.value = cached
+            return@LaunchedEffect
+        }
+
+        if (raw.startsWith("gs://")) {
+            runCatching {
+                val ref = FirebaseStorage.getInstance().getReferenceFromUrl(raw)
+                val url = ref.downloadUrl.await()
+                val resolved = url.toString()
+                achievementBadgeUrlCache[raw] = resolved
+                badgeUrlState.value = resolved
+            }.onFailure {
+                badgeUrlState.value = null
+            }
+        } else {
+            achievementBadgeUrlCache[raw] = raw
+            badgeUrlState.value = raw
+        }
+    }
+
+    val arrowRotation by animateFloatAsState(
+        targetValue = if (expanded) 180f else 0f,
+        animationSpec = tween(200),
+        label = "arrow_rotation_achievement"
+    )
+
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { expanded = !expanded },
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        shape = RoundedCornerShape(16.dp)
+    ) {
+        Column(modifier = Modifier.padding(12.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = achievement.title.ifBlank { "(Untitled Achievement)" },
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = TextDark,
+                    modifier = Modifier.weight(1f)
+                )
+
+                val badgeUrl = badgeUrlState.value
+                if (badgeUrl != null) {
+                    val context = androidx.compose.ui.platform.LocalContext.current
+                    AsyncImage(
+                        model = ImageRequest.Builder(context)
+                            .data(badgeUrl)
+                            .crossfade(false) // avoid re-fade on scroll when loaded from cache
+                            .build(),
+                        contentDescription = "${achievement.title} badge",
+                        contentScale = ContentScale.Fit,
+                        filterQuality = FilterQuality.High,
+                        modifier = Modifier
+                            .size(56.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                }
+
+                Icon(
+                    imageVector = Icons.Default.ArrowDropDown,
+                    contentDescription = if (expanded) "Collapse" else "Expand",
+                    tint = TextDark.copy(alpha = 0.8f),
+                    modifier = Modifier.rotate(arrowRotation)
+                )
+            }
+
+            Spacer(modifier = Modifier.height(6.dp))
+
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(Rock1.copy(alpha = 0.12f))
+                    .padding(horizontal = 10.dp, vertical = 4.dp)
+            ) {
+                Text(
+                    text = "Completed",
+                    fontSize = 11.sp,
+                    color = Rock1
+                )
+            }
+
+            AnimatedVisibility(
+                visible = expanded,
+                enter = fadeIn(tween(120)) + expandVertically(tween(180)),
+                exit = fadeOut(tween(120)) + shrinkVertically(tween(180))
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 12.dp)
+                ) {
+                    Text(
+                        text = "Criteria",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = TextDark
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+
+                    if (achievement.description.isNotBlank()) {
+                        Text(
+                            text = "• ${achievement.description}",
+                            fontSize = 12.sp,
+                            color = TextDark.copy(alpha = 0.85f)
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                    }
+
+                    if (achievement.trigger.isNotBlank()) {
+                        Text(
+                            text = "• Trigger: ${achievement.trigger}",
+                            fontSize = 12.sp,
+                            color = TextDark.copy(alpha = 0.85f)
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                    }
+
+                    Text(
+                        text = "• Requirement: Do ${achievement.target} time(s)",
+                        fontSize = 12.sp,
+                        color = TextDark.copy(alpha = 0.85f)
+                    )
+
+                    achievement.rockId?.let { rockId ->
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "• Rock ID: $rockId",
+                            fontSize = 12.sp,
+                            color = TextDark.copy(alpha = 0.85f)
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "+${achievement.rewardPoints} points",
+                        fontSize = 12.sp,
+                        color = Rock1
+                    )
+                }
+            }
+        }
+    }
+}
+
 @Composable
 private fun AdminMissionAchievementDialog(
     initialMission: MissionDefinition?,
@@ -897,24 +1074,23 @@ private fun AdminMissionAchievementDialog(
         else -> AdminEntityKind.MISSION
     }
 
-    val rewardOptions = listOf(10, 20, 50, 100, 200, 500)
-    val missionTypeOptions = listOf("General", "One-time", "Daily", "Weekly")
-    
+    val rewardOptions = listOf(10, 20, 50, 75, 100, 200, 500)
+    val missionTypeOptions = listOf("Daily", "Weekly")
+
     val triggerOptions = listOf(
+        "collect_rock" to "Identify or collect a rock",
         "post_comment" to "Post a comment",
         "read_rock_info" to "Read rock information",
-        "collect_rock" to "Collect a rock",
         "upload_photo" to "Upload a photo",
-        "visit_location" to "Visit a location",
-        "complete_mission" to "Complete a mission"
+        "visit_location" to "View a map location",
+        "edit_personal_notes" to "Edit personal notes"
     )
     val triggerMenuExpanded = remember { mutableStateOf(false) }
 
-    val startOptions = listOf("none", "today", "signup", "custom_existing")
+    val startOptions = listOf("none", "today", "custom_existing")
     val startOptionLabels = mapOf(
         "none" to "No start",
         "today" to "Start today",
-        "signup" to "User registration date",
         "custom_existing" to "Keep existing start date"
     )
 
@@ -960,7 +1136,6 @@ private fun AdminMissionAchievementDialog(
 
     val initialStartOption = when {
         initialMission == null || initialMission.startAt == 0L -> "none"
-        initialMission.startAt < 0L -> "signup"
         else -> "custom_existing"
     }
     val startOptionState = remember { mutableStateOf(initialStartOption) }
@@ -1333,7 +1508,8 @@ private fun AdminMissionAchievementDialog(
                                 target = target,
                                 rewardPoints = reward,
                                 trigger = trigger,
-                                rockId = rockId
+                                rockId = rockId,
+                                imageFile = initialAchievement?.imageFile ?: ""
                             )
                             onSaveAchievement(achievement)
                         }
@@ -1344,6 +1520,7 @@ private fun AdminMissionAchievementDialog(
             }
         }
     }
+
 
 
 }@Composable

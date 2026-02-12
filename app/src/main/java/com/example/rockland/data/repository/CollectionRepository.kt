@@ -4,15 +4,13 @@ import com.example.rockland.data.model.CollectionItem
 import com.google.firebase.Timestamp
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.ListenerRegistration
 import com.google.firebase.firestore.SetOptions
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 import kotlin.coroutines.suspendCoroutine
-import android.net.Uri
-import com.google.firebase.storage.FirebaseStorage
 
 // Performs Firestore reads/writes for the user's collection documents.
-
 class CollectionRepository(
     private val firestore: FirebaseFirestore = FirebaseFirestore.getInstance()
 ) {
@@ -23,23 +21,27 @@ class CollectionRepository(
             .document(userId)
             .collection("collection")
 
-    // Loads every entry from the user's collection subcollection.
-    suspend fun fetchCollection(userId: String): List<CollectionItem> =
-        suspendCoroutine { cont ->
-            userCollectionRef(userId)
-                .orderBy("createdAt")
-                .get()
-                .addOnSuccessListener { snapshot ->
-                    val items = snapshot.documents.mapNotNull { doc ->
-                        val item = doc.toObject(CollectionItem::class.java)
-                        item?.copy(id = doc.id)
-                    }
-                    cont.resume(items)
+    // Real-time listener for the user's collection.
+    fun listenToCollection(
+        userId: String,
+        onItems: (List<CollectionItem>) -> Unit,
+        onError: (Throwable) -> Unit
+    ): ListenerRegistration {
+        return userCollectionRef(userId)
+            .orderBy("createdAt")
+            .addSnapshotListener { snapshot, e ->
+                if (e != null) {
+                    onError(e)
+                    return@addSnapshotListener
                 }
-                .addOnFailureListener { e ->
-                    cont.resumeWithException(e)
+                val docs = snapshot ?: return@addSnapshotListener
+                val items = docs.documents.mapNotNull { doc ->
+                    val item = doc.toObject(CollectionItem::class.java)
+                    item?.copy(id = doc.id)
                 }
-        }
+                onItems(items)
+            }
+    }
 
     // Checks for duplicates by rockId first, then rockName.
     suspend fun isRockInCollection(userId: String, rockId: String, rockName: String): Boolean =
@@ -253,55 +255,5 @@ class CollectionRepository(
             }
     }
 
-    // uploads image to firebase
-    private suspend fun uploadImageAndGetUrl(
-        userId: String,
-        rockId: String,
-        imageUri: Uri
-    ): String = suspendCoroutine { cont ->
-        val storageRef = FirebaseStorage.getInstance()
-            .reference
-            .child("users/$userId/collection/$rockId/${System.currentTimeMillis()}.jpg")
-
-        storageRef.putFile(imageUri)
-            .addOnSuccessListener {
-                storageRef.downloadUrl
-                    .addOnSuccessListener { uri ->
-                        cont.resume(uri.toString())
-                    }
-                    .addOnFailureListener { e ->
-                        cont.resumeWithException(e)
-                    }
-            }
-            .addOnFailureListener { e ->
-                cont.resumeWithException(e)
-            }
-    }
-
-
-    // adds image to personal notes
-    suspend fun addImageToPersonalNotes(
-        userId: String,
-        rockId: String,
-        rockName: String,
-        rockSource: String,
-        thumbnailUrl: String?,
-        imageUri: Uri
-    ) {
-        // 1. check if rock already exists
-        val existingItemId = findCollectionItemId(userId, rockId, rockName)
-
-        // 2. create collection entry if rock does not exist in user's collection
-        val itemId = existingItemId ?: addRockToCollection(
-            userId = userId,
-            rockId = rockId,
-            rockSource = rockSource,
-            rockName = rockName,
-            thumbnailUrl = thumbnailUrl
-        )
-
-        // 3) Upload image & append to userImageUrls
-        val downloadUrl = uploadImageAndGetUrl(userId, rockId, imageUri)
-        appendUserImageUrls(userId, itemId, listOf(downloadUrl))
-    }
+    // (upload helpers for personal-notes flow have been removed because the flow now uses CollectionViewModel utilities)
 }

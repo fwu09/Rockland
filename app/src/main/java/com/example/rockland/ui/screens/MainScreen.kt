@@ -1,4 +1,3 @@
-// Screen orchestrating bottom navigation and child content in the UI layer.
 package com.example.rockland.ui.screens
 
 import androidx.compose.foundation.layout.Box
@@ -10,11 +9,14 @@ import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.CardGiftcard
 import androidx.compose.material.icons.filled.Email
 import androidx.compose.material.icons.filled.Map
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -24,6 +26,8 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.rockland.data.datasource.remote.UserData
 import com.example.rockland.presentation.viewmodel.AwardsViewModel
@@ -31,8 +35,8 @@ import com.example.rockland.presentation.viewmodel.CollectionViewModel
 import com.example.rockland.presentation.viewmodel.MapViewModel
 import com.example.rockland.presentation.viewmodel.ReviewContentViewModel
 import com.example.rockland.presentation.viewmodel.UserViewModel
+import com.example.rockland.ui.theme.Rock1
 
-// Main screen with bottom navigation.
 @Composable
 fun MainScreen(
     onSettingsClick: () -> Unit = {},
@@ -64,10 +68,12 @@ fun MainScreenContent(
 ) {
     val mapViewModel = remember { MapViewModel() }
     val collectionViewModel: CollectionViewModel = viewModel()
+
     val awardsViewModel: AwardsViewModel = viewModel(
         key = "awards_${userData?.userId ?: "_anon"}",
         factory = AwardsViewModel.Factory(userData?.userId)
     )
+
     val reviewContentViewModel: ReviewContentViewModel =
         viewModel(factory = ReviewContentViewModel.Factory())
 
@@ -79,51 +85,83 @@ fun MainScreenContent(
     val isAdmin = normalizedRole == "admin" || normalizedRole == "user_admin"
 
     Scaffold(
+        containerColor = MaterialTheme.colorScheme.background,
         bottomBar = {
+
+            val navItemColors = NavigationBarItemDefaults.colors(
+                selectedIconColor = Rock1,
+                unselectedIconColor = Color(0xFF7A7A7A),
+                selectedTextColor = Rock1,
+                unselectedTextColor = Color(0xFF7A7A7A),
+                indicatorColor = Rock1.copy(alpha = 0.14f)
+            )
+
             NavigationBar(
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier.fillMaxWidth(),
+                containerColor = Color.White,
+                tonalElevation = 6.dp
             ) {
-                // 0 - Collection
                 NavigationBarItem(
-                    icon = { Icon(Icons.AutoMirrored.Filled.List, contentDescription = null) },
+                    icon = { Icon(Icons.AutoMirrored.Filled.List, contentDescription = "Collect") },
                     label = { Text("Collect") },
                     selected = selectedTab == 0,
-                    onClick = { onTabSelected(0) }
+                    onClick = { onTabSelected(0) },
+                    colors = navItemColors,
+                    alwaysShowLabel = false
                 )
-                // 1 - Map
+
                 NavigationBarItem(
-                    icon = { Icon(Icons.Default.Map, contentDescription = null) },
+                    icon = { Icon(Icons.Default.Map, contentDescription = "Map") },
                     label = { Text("Map") },
                     selected = selectedTab == 1,
-                    onClick = { onTabSelected(1) }
+                    onClick = { onTabSelected(1) },
+                    colors = navItemColors,
+                    alwaysShowLabel = false
                 )
-                // 2 - Inbox
+
                 NavigationBarItem(
-                    icon = { Icon(Icons.Default.Email, contentDescription = null) },
+                    icon = { Icon(Icons.Default.Email, contentDescription = "Inbox") },
                     label = { Text("Inbox") },
                     selected = selectedTab == 2,
-                    onClick = { onTabSelected(2) }
+                    onClick = { onTabSelected(2) },
+                    colors = navItemColors,
+                    alwaysShowLabel = false
                 )
-                // 3 - Identifier
+
                 NavigationBarItem(
-                    icon = { Icon(Icons.Default.Search, contentDescription = null) },
+                    icon = { Icon(Icons.Default.Search, contentDescription = "Scan") },
                     label = { Text("Scan") },
                     selected = selectedTab == 3,
-                    onClick = { onTabSelected(3) }
+                    onClick = { onTabSelected(3) },
+                    colors = navItemColors,
+                    alwaysShowLabel = true
                 )
-                // 4 - Awards
+
                 NavigationBarItem(
-                    icon = { Icon(Icons.Default.Star, contentDescription = null) },
+                    icon = { Icon(Icons.Default.Star, contentDescription = "Awards") },
                     label = { Text("Awards") },
                     selected = selectedTab == 4,
-                    onClick = { onTabSelected(4) }
+                    onClick = { onTabSelected(4) },
+                    colors = navItemColors,
+                    alwaysShowLabel = false
                 )
-                // ✅ 5 - Boxes (NEW)
+
                 NavigationBarItem(
-                    icon = { Icon(Icons.Default.CardGiftcard, contentDescription = null) },
+                    icon = { Icon(Icons.Default.CardGiftcard, contentDescription = "Boxes") },
                     label = { Text("Boxes") },
                     selected = selectedTab == 5,
-                    onClick = { onTabSelected(5) }
+                    onClick = { onTabSelected(5) },
+                    colors = navItemColors,
+                    alwaysShowLabel = false
+                )
+
+                NavigationBarItem(
+                    icon = { Icon(Icons.Default.Person, contentDescription = "Profile") },
+                    label = { Text("Profile") },
+                    selected = selectedTab == 6,
+                    onClick = { onTabSelected(6) },
+                    colors = navItemColors,
+                    alwaysShowLabel = false
                 )
             }
         }
@@ -148,7 +186,7 @@ fun MainScreenContent(
 
                 2 -> InboxScreen(
                     userData = userData,
-                    onProfileClick = { onTabSelected(6) }, // ✅ moved profile to 6
+                    onProfileClick = { onTabSelected(6) },
                     onGoToPage = { notification ->
                         val targetTab = notification.targetTab?.trim()?.lowercase()
                         when (targetTab) {
@@ -159,12 +197,15 @@ fun MainScreenContent(
                                     mapViewModel.focusLocation(locationId)
                                 }
                             }
+
                             "dictionary" -> {
                                 collectionTabIndex.intValue = 1
                                 onTabSelected(0)
                             }
+
                             else -> {
-                                if (notification.type == "rock_dictionary_approved" ||
+                                if (
+                                    notification.type == "rock_dictionary_approved" ||
                                     notification.title == "Rock Dictionary Update Approved"
                                 ) {
                                     collectionTabIndex.intValue = 1
@@ -188,12 +229,8 @@ fun MainScreenContent(
                     isAdmin = isAdmin
                 )
 
-                // ✅ 5 -> Boxes Screen (NEW)
-                5 -> BoxesScreen(
-                    userId = userData?.userId
-                )
+                5 -> BoxesScreen(userId = userData?.userId)
 
-                // ✅ 6 -> Profile Screen (moved from 5)
                 6 -> ProfileScreen(
                     userData = userData,
                     onSettingsClick = onSettingsClick,
@@ -201,7 +238,6 @@ fun MainScreenContent(
                     onBackClick = { onTabSelected(2) }
                 )
 
-                // Fallback to Collection if selectedTab is invalid
                 else -> {
                     onTabSelected(0)
                     CollectionScreen()

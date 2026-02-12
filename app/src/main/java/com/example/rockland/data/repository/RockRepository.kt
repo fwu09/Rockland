@@ -1,13 +1,13 @@
 package com.example.rockland.data.repository
 
+import android.util.Log
 import com.google.firebase.firestore.FirebaseFirestore
-import kotlinx.coroutines.tasks.await
 import com.google.firebase.storage.FirebaseStorage
 import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.tasks.await
 
-
-// Simple repository that reads rock metadata from Firestore.
 data class Rock(
     val rockID: Int = 0,
     val rockName: String = "",
@@ -15,41 +15,41 @@ data class Rock(
     val rockLocation: String = "",
     val rockDesc: String = "",
 
-    // from Firestore (e.g. "shale.jpg" or "shale.png")
     val rockImageName: String = "",
 
-    // used by UI (filled in by repository)
     val rockImageUrl: String = ""
 )
-
 
 class RockRepository {
 
     private val db = FirebaseFirestore.getInstance()
     private val storage = FirebaseStorage.getInstance()
 
+    /**
+     * Resolve rockImageUrl from Storage if it's blank and rockImageName is present.
+     * This is SAFE: if resolving fails, we return the original rock unchanged.
+     */
     private suspend fun withResolvedImageUrl(rock: Rock?): Rock? {
         if (rock == null) return null
 
-        android.util.Log.d("ROCKIMG", "Firestore rock=${rock.rockName} name='${rock.rockImageName}' url='${rock.rockImageUrl}'")
+        Log.d("ROCKIMG", "Firestore rock=${rock.rockName} name='${rock.rockImageName}' url='${rock.rockImageUrl}'")
 
         if (rock.rockImageUrl.isNotBlank()) return rock
         if (rock.rockImageName.isBlank()) return rock
 
         return try {
             val path = "rock/${rock.rockImageName}"
-            android.util.Log.d("ROCKIMG", "Resolving storage path=$path")
+            Log.d("ROCKIMG", "Resolving storage path=$path")
 
             val url = storage.reference.child(path).downloadUrl.await().toString()
-            android.util.Log.d("ROCKIMG", "Resolved url=$url")
+            Log.d("ROCKIMG", "Resolved url=$url")
 
             rock.copy(rockImageUrl = url)
         } catch (e: Exception) {
-            android.util.Log.e("ROCKIMG", "Failed to resolve url for ${rock.rockImageName}: ${e.message}", e)
+            Log.e("ROCKIMG", "Failed to resolve url for ${rock.rockImageName}: ${e.message}", e)
             rock
         }
     }
-
 
     suspend fun getRockByName(rockName: String): Rock? {
         val snapshot = db.collection("rock")
@@ -77,13 +77,12 @@ class RockRepository {
         val snapshot = db.collection("rock").get().await()
         val rocks = snapshot.documents.mapNotNull { it.toObject(Rock::class.java) }
 
-        // Resolve URLs in parallel (faster)
         return coroutineScope {
-            rocks.map { r -> async { withResolvedImageUrl(r) ?: r } }.map { it.await() }
+            rocks.map { r -> async { withResolvedImageUrl(r) ?: r } }.awaitAll()
         }
     }
+
     suspend fun hasActiveDependencies(rockId: Int): Boolean {
-        // Prefer new explicit rockId field on missions/achievements; fall back to legacy rockID if present.
         val missionByRockId = db.collection("missions")
             .whereEqualTo("rockId", rockId)
             .limit(1)
@@ -122,7 +121,4 @@ class RockRepository {
         val doc = snapshot.documents.firstOrNull() ?: return
         doc.reference.delete().await()
     }
-
-
-
 }

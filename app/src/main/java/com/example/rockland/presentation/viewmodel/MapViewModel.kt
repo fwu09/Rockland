@@ -244,8 +244,10 @@ class MapViewModel(
                 )
 
                 if (uid.isNotBlank()) {
-                    val result = awardsRepository.applyTrigger(uid, "post_comment")
-                    result.messages.firstOrNull()?.let { _awardMessages.tryEmit(it) }
+                    runCatching {
+                        val result = awardsRepository.applyTrigger(uid, "post_comment")
+                        result.messages.firstOrNull()?.let { _awardMessages.tryEmit(it) }
+                    }
                 }
 
                 _submissionMessages.tryEmit("Comment submitted. Waiting for review.")
@@ -283,6 +285,11 @@ class MapViewModel(
                     imageUrl = url
                 )
 
+                runCatching {
+                    val triggerResult = awardsRepository.applyTrigger(uid, "upload_photo")
+                    triggerResult.messages.firstOrNull()?.let { _awardMessages.tryEmit(it) }
+                }
+
                 _submissionMessages.tryEmit("Photo submitted. Waiting for review.")
                 loadCommunityContent(locationId)
             } catch (t: Throwable) {
@@ -298,8 +305,10 @@ class MapViewModel(
     fun recordReadRockInfo(locationId: String) {
         if (!readInfoLocations.add(locationId)) return
         viewModelScope.launch {
-            currentUser.value?.uid?.let { uid ->
-                val result = awardsRepository.applyTrigger(uid, "read_rock_info")
+            val uid = currentUser.value?.uid ?: return@launch
+            runCatching {
+                // Location pin info = visit_location (not read_rock_info)
+                val result = awardsRepository.applyTrigger(uid, "visit_location")
                 result.messages.firstOrNull()?.let { _awardMessages.tryEmit(it) }
             }
         }
