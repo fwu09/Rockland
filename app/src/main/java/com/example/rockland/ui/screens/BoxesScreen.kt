@@ -19,9 +19,9 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -65,7 +65,6 @@ import kotlin.random.Random
 fun BoxesScreen(userId: String?) {
     val db = remember { FirebaseFirestore.getInstance() }
     val scope = rememberCoroutineScope()
-
     val authUserIdState = remember { mutableStateOf<String?>(FirebaseAuth.getInstance().currentUser?.uid) }
 
     DisposableEffect(Unit) {
@@ -86,7 +85,10 @@ fun BoxesScreen(userId: String?) {
     val isLoading = remember { mutableStateOf(true) }
     val errorMsg = remember { mutableStateOf<String?>(null) }
     val resultDialog = remember { mutableStateOf<BoxOpenResult?>(null) }
-    val opening = remember { mutableStateOf(false) }
+    // Opening flags per box
+    val isOpeningCommon = remember { mutableStateOf(false) }
+    val isOpeningRare = remember { mutableStateOf(false) }
+    val isOpeningSpecial = remember { mutableStateOf(false) }
 
     LaunchedEffect(resolvedUserId) {
         if (resolvedUserId.isNullOrBlank()) {
@@ -134,7 +136,11 @@ fun BoxesScreen(userId: String?) {
             .background(Color(0xFFF5F5F5))
             .padding(horizontal = 16.dp, vertical = 12.dp)
     ) {
-        Column(modifier = Modifier.fillMaxSize()) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+        ) {
             Text(
                 text = "Boxes",
                 style = MaterialTheme.typography.headlineSmall,
@@ -230,7 +236,9 @@ fun BoxesScreen(userId: String?) {
                         commonCount = commonCount.intValue,
                         rareCount = rareCount.intValue,
                         specialCount = specialCount.intValue,
-                        opening = opening.value,
+                        openingCommon = isOpeningCommon.value,
+                        openingRare = isOpeningRare.value,
+                        openingSpecial = isOpeningSpecial.value,
                         onOpenCommon = {
                             if (commonCount.intValue <= 0) return@InventoryCards
                             scope.launch {
@@ -238,8 +246,8 @@ fun BoxesScreen(userId: String?) {
                                     db = db,
                                     userId = resolvedUserId,
                                     boxId = "common",
-                                    onStart = { opening.value = true },
-                                    onDone = { opening.value = false },
+                                    onStart = { isOpeningCommon.value = true },
+                                    onDone = { isOpeningCommon.value = false },
                                     onError = { errorMsg.value = it },
                                     onResult = { result ->
                                         commonCount.intValue = (commonCount.intValue - 1).coerceAtLeast(0)
@@ -255,8 +263,8 @@ fun BoxesScreen(userId: String?) {
                                     db = db,
                                     userId = resolvedUserId,
                                     boxId = "rare",
-                                    onStart = { opening.value = true },
-                                    onDone = { opening.value = false },
+                                    onStart = { isOpeningRare.value = true },
+                                    onDone = { isOpeningRare.value = false },
                                     onError = { errorMsg.value = it },
                                     onResult = { result ->
                                         rareCount.intValue = (rareCount.intValue - 1).coerceAtLeast(0)
@@ -272,8 +280,8 @@ fun BoxesScreen(userId: String?) {
                                     db = db,
                                     userId = resolvedUserId,
                                     boxId = "special",
-                                    onStart = { opening.value = true },
-                                    onDone = { opening.value = false },
+                                    onStart = { isOpeningSpecial.value = true },
+                                    onDone = { isOpeningSpecial.value = false },
                                     onError = { errorMsg.value = it },
                                     onResult = { result ->
                                         specialCount.intValue = (specialCount.intValue - 1).coerceAtLeast(0)
@@ -320,22 +328,22 @@ private fun InventoryCards(
     commonCount: Int,
     rareCount: Int,
     specialCount: Int,
-    opening: Boolean,
+    openingCommon: Boolean,
+    openingRare: Boolean,
+    openingSpecial: Boolean,
     onOpenCommon: () -> Unit,
     onOpenRare: () -> Unit,
     onOpenSpecial: () -> Unit
 ) {
-    LazyColumn(
+    Column(
         modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        items(
-            listOf(
-                BoxUi("Common Box", "Daily mission rewards", commonCount, Color(0xFFBDBDBD), "📦"),
-                BoxUi("Rare Box", "Weekly mission rewards", rareCount, Color(0xFF4A90E2), "🎁"),
-                BoxUi("Special Box", "Monthly leaderboard rewards", specialCount, Color(0xFF9C27B0), "💎")
-            )
-        ) { item ->
+        listOf(
+            BoxUi("Common Box", "Daily mission rewards", commonCount, Color(0xFFBDBDBD), "📦"),
+            BoxUi("Rare Box", "Weekly mission rewards", rareCount, Color(0xFF4A90E2), "🎁"),
+            BoxUi("Special Box", "Monthly leaderboard rewards", specialCount, Color(0xFF9C27B0), "💎")
+        ).forEach { item ->
             val borderColor = item.accent
             val bgGlow = Brush.verticalGradient(
                 colors = listOf(
@@ -407,6 +415,13 @@ private fun InventoryCards(
                     Spacer(Modifier.height(10.dp))
                     HorizontalDivider(color = Color(0xFFEAEAEA))
                     Spacer(Modifier.height(10.dp))
+
+                    val opening = when (item.title) {
+                        "Common Box" -> openingCommon
+                        "Rare Box" -> openingRare
+                        "Special Box" -> openingSpecial
+                        else -> false
+                    }
 
                     if (opening) {
                         LinearProgressIndicator(
@@ -661,20 +676,33 @@ private suspend fun addRockToUserCollection(
 ) {
     val repository = CollectionRepository()
 
-    val rockId = rockName.trim().lowercase().replace(" ", "_")
-
     try {
+        // Try to resolve the rock's numeric ID and thumbnail from the rock dictionary.
+        val rockSnapshot = db.collection("rock")
+            .whereEqualTo("rockName", rockName)
+            .limit(1)
+            .get()
+            .await()
+
+        val rockDoc = rockSnapshot.documents.firstOrNull()
+        val resolvedRockId = (rockDoc?.getLong("rockID") ?: 0L)
+            .takeIf { it > 0L }
+            ?.toString()
+            ?: rockName.trim().lowercase().replace(" ", "_")
+
+        val resolvedThumbnail = rockDoc?.getString("rockImageUrl")
+
         repository.addRockToCollection(
             userId = userId,
-            rockId = rockId,
+            rockId = resolvedRockId,
             rockSource = "box:$sourceBoxId",
             rockName = rockName,
-            thumbnailUrl = null
+            thumbnailUrl = resolvedThumbnail
         )
 
         db.collection("users").document(userId)
             .set(
-                mapOf("unlockedRockIds" to FieldValue.arrayUnion(rockId)),
+                mapOf("unlockedRockIds" to FieldValue.arrayUnion(resolvedRockId)),
                 SetOptions.merge()
             )
             .await()

@@ -351,6 +351,25 @@ private fun CollectionListItem(
     onSelect: () -> Unit
 ) {
     val menuExpanded = remember { mutableStateOf(false) }
+    val rockRepository = remember { RockRepository() }
+    val thumbnailState = remember(item.id, item.thumbnailUrl) { mutableStateOf(item.thumbnailUrl) }
+
+    LaunchedEffect(item.id, item.thumbnailUrl) {
+        if (!thumbnailState.value.isNullOrBlank()) return@LaunchedEffect
+
+        runCatching {
+            val idInt = item.rockId.toIntOrNull()
+            val rock = if (idInt != null) {
+                rockRepository.getRockById(idInt)
+            } else {
+                rockRepository.getRockByName(item.rockName.trim())
+            }
+            val url = rock?.rockImageUrl
+            if (!url.isNullOrBlank()) {
+                thumbnailState.value = url
+            }
+        }
+    }
 
     Card(
         modifier = Modifier
@@ -379,18 +398,13 @@ private fun CollectionListItem(
                         .background(Rock3.copy(alpha = 0.2f)),
                     contentAlignment = Alignment.Center
                 ) {
-                    if (!item.thumbnailUrl.isNullOrBlank()) {
+                    val thumb = thumbnailState.value
+                    if (!thumb.isNullOrBlank()) {
                         AsyncImage(
-                            model = item.thumbnailUrl,
+                            model = thumb,
                             contentDescription = "${item.rockName} thumbnail",
                             modifier = Modifier.fillMaxSize(),
                             contentScale = ContentScale.Crop
-                        )
-                    } else {
-                        Text(
-                            text = "Photo",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = TextDark
                         )
                     }
                 }

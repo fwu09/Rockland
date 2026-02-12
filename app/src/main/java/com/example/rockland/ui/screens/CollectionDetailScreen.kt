@@ -79,6 +79,11 @@ fun CollectionDetailScreen(
     var selectedTab by remember { mutableIntStateOf(0) } // 0 = Rock Info, 1 = Note Details
     var showEditSheet by remember { mutableStateOf(false) }
 
+    LaunchedEffect(item.id) {
+        // Reading a rock entry = read_rock_info trigger
+        collectionViewModel.recordReadRockInfo()
+    }
+
     // Cache dictionary lookup state at the parent level so tab switching doesn't reset it.
     val rockRepository = remember { RockRepository() }
     var dictRock by remember(item.rockId, item.rockName) { mutableStateOf<Rock?>(null) }
@@ -380,7 +385,7 @@ private fun EditNotesSheet(
     val photoPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickMultipleVisualMedia(maxItems = 10)
     ) { uris ->
-        if (uris.isNullOrEmpty()) return@rememberLauncherForActivityResult
+        if (uris.isEmpty()) return@rememberLauncherForActivityResult
                 collectionViewModel.uploadUserPhotos(
                     itemId = item.id,
                     uris = uris,

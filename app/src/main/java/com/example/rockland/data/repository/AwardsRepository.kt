@@ -13,6 +13,7 @@ import kotlinx.coroutines.tasks.await
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import android.util.Log
 
 class AwardsRepository(
     private val firestore: FirebaseFirestore = FirebaseFirestore.getInstance()
@@ -43,15 +44,24 @@ class AwardsRepository(
     suspend fun fetchAchievements(): List<AchievementDefinition> {
         val snapshot = achievementsRef.get().await()
         return snapshot.documents.map { doc ->
-            AchievementDefinition(
+            val image =
+                ((doc.get("imageFile") ?: doc.get("imagefile")) as? String).orEmpty()
+
+            val achievement = AchievementDefinition(
                 id = doc.id,
                 title = doc.getString("title") ?: "",
                 description = doc.getString("description") ?: "",
                 target = (doc.getLong("target") ?: 0L).toInt(),
                 rewardPoints = (doc.getLong("rewardPoints") ?: 0L).toInt(),
                 trigger = doc.getString("trigger") ?: "",
-                rockId = (doc.getLong("rockId") ?: 0L).takeIf { it > 0L }?.toInt()
+                rockId = (doc.getLong("rockId") ?: 0L).takeIf { it > 0L }?.toInt(),
+                imageFile = image
             )
+
+            // Debug: verify Firestore imageFile mapping
+            Log.d("AwardsRepo", "achievement=${achievement.id}, imageFile=$image")
+
+            achievement
         }
     }
 
@@ -124,7 +134,8 @@ class AwardsRepository(
                 target = (doc.getLong("target") ?: 0L).toInt(),
                 rewardPoints = (doc.getLong("rewardPoints") ?: 0L).toInt(),
                 trigger = doc.getString("trigger") ?: "",
-                rockId = (doc.getLong("rockId") ?: 0L).takeIf { it > 0L }?.toInt()
+                rockId = (doc.getLong("rockId") ?: 0L).takeIf { it > 0L }?.toInt(),
+                imageFile = ((doc.get("imageFile") ?: doc.get("imagefile")) as? String).orEmpty()
             )
         }
 
@@ -139,6 +150,8 @@ class AwardsRepository(
         val firstName = userDoc.getString("firstName") ?: ""
         val lastName = userDoc.getString("lastName") ?: ""
         val displayName = "$firstName $lastName".trim().ifBlank { "User" }
+        val role = userDoc.getString("role")?.trim()?.lowercase().orEmpty()
+        val isAdminLike = role == "admin" || role == "user_admin"
 
         val currentCounts = (userDoc.get("triggerCounts") as? Map<*, *>)
             ?.mapNotNull { (k, v) -> (k as? String)?.let { it to (v as? Long ?: 0L).toInt() } }
@@ -153,7 +166,7 @@ class AwardsRepository(
         val updatedAchievements = existingAchievements.toMutableSet()
         val messages = mutableListOf<String>()
 
-        // 🎁 box increments to apply once at the end
+        // Box increments to apply once at the end
         val boxIncrements = mutableMapOf<String, Long>() // common/rare/special -> count
 
         val batch = firestore.batch()
@@ -181,7 +194,7 @@ class AwardsRepository(
                 missionsCompletedDelta += 1
                 messages.add("Mission completed: ${mission.title} (+${mission.rewardPoints} pts)")
 
-                // 🎁 Give a box based on mission type
+                // Give a box based on mission type
                 val boxType = when (mission.type.lowercase()) {
                     "daily" -> "common"
                     "weekly" -> "rare"
@@ -215,28 +228,35 @@ class AwardsRepository(
             "missionsCompleted" to missionsCompleted + missionsCompletedDelta,
             "achievementsCompleted" to achievementsCompleted + achievementsCompletedDelta,
             "achievements" to updatedAchievements.toList(),
+            "badges" to updatedAchievements.toList(),
             "triggerCounts" to updatedCounts
         )
 
         // user base updates
         batch.set(usersRef.document(userId), userUpdates, SetOptions.merge())
 
-        // 🎁 apply box inventory increments (creates fields if missing)
+        // Apply box inventory increments (safe even if user doc is new)
         boxIncrements.forEach { (boxType, amount) ->
-            batch.update(
+            batch.set(
                 usersRef.document(userId),
-                "boxInventory.$boxType",
-                FieldValue.increment(amount)
+                mapOf(
+                    "boxInventory" to mapOf(
+                        boxType to FieldValue.increment(amount)
+                    )
+                ),
+                SetOptions.merge()
             )
         }
 
-        val monthId = currentMonthId()
-        val entryRef = leaderboardsRef.document(monthId).collection("entries").document(userId)
-        batch.set(
-            entryRef,
-            mapOf("name" to displayName, "points" to (monthlyPoints + pointsDelta)),
-            SetOptions.merge()
-        )
+        if (!isAdminLike) {
+            val monthId = currentMonthId()
+            val entryRef = leaderboardsRef.document(monthId).collection("entries").document(userId)
+            batch.set(
+                entryRef,
+                mapOf("name" to displayName, "points" to (monthlyPoints + pointsDelta)),
+                SetOptions.merge()
+            )
+        }
 
         batch.commit().await()
         return TriggerResult(messages = messages, pointsDelta = pointsDelta)

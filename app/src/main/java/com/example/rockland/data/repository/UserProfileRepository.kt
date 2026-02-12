@@ -36,7 +36,6 @@ class  UserProfileRepository(
         val userDoc = firestore.collection("users").document(userId).get().await()
         val role = userDoc.getString("role")?.trim()?.lowercase().orEmpty()
         if (role != "admin" && role != "user_admin") return
-        if ((userDoc.getLong("adminSeededAt") ?: 0L) > 0L) return
 
         val missions = awardsRepository.fetchMissions()
         val achievements = awardsRepository.fetchAchievements()

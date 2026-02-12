@@ -35,7 +35,8 @@ data class AchievementDefinition(
     val target: Int = 0,
     val rewardPoints: Int = 0,
     val trigger: String = "",
-    val rockId: Int? = null
+    val rockId: Int? = null,
+    val imageFile: String = ""
 )
 
 data class LeaderboardEntry(

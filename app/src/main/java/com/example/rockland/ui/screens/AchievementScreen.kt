@@ -51,6 +51,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.FilterQuality
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -62,6 +64,10 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.ui.draw.rotate
 import androidx.lifecycle.viewmodel.compose.viewModel
+import coil.compose.AsyncImage
+import coil.request.ImageRequest
+import com.google.firebase.storage.FirebaseStorage
+import kotlinx.coroutines.tasks.await
 import com.example.rockland.data.model.AchievementDefinition
 import com.example.rockland.data.model.LeaderboardEntry
 import com.example.rockland.data.model.MissionDefinition
@@ -812,48 +818,6 @@ private fun SectionHeader(title: String) {
 }
 
 @Composable
-private fun SimpleListRow(text: String) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = Color.White),
-        shape = RoundedCornerShape(16.dp)
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(12.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(8.dp)
-                    .clip(RoundedCornerShape(4.dp))
-                    .background(Rock1)
-            )
-            Spacer(modifier = Modifier.width(10.dp))
-            Text(
-                text = text,
-                fontSize = 14.sp,
-                color = TextDark,
-                modifier = Modifier.weight(1f)
-            )
-            Box(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(Rock1.copy(alpha = 0.12f))
-                    .padding(horizontal = 10.dp, vertical = 4.dp)
-            ) {
-                Text(
-                    text = "Completed",
-                    fontSize = 11.sp,
-                    color = Rock1
-                )
-            }
-        }
-    }
-}
-
-@Composable
 private fun EmptyState(text: String) {
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -923,10 +887,44 @@ private enum class AdminEntityKind {
     ACHIEVEMENT
 }
 
+// Simple in-memory cache to avoid resolving the same badge URL repeatedly.
+private val achievementBadgeUrlCache = mutableMapOf<String, String>()
+
 // achievement improved UI
 @Composable
 private fun ExpandableAchievementRow(achievement: AchievementDefinition) {
     var expanded by rememberSaveable(achievement.id) { mutableStateOf(false) }
+    val badgeUrlState = remember(achievement.imageFile) { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(achievement.id, achievement.imageFile) {
+        val raw = achievement.imageFile.trim()
+        if (raw.isBlank()) {
+            badgeUrlState.value = null
+            return@LaunchedEffect
+        }
+
+        // First check in-memory cache so we do not hit storage repeatedly.
+        val cached = achievementBadgeUrlCache[raw]
+        if (cached != null) {
+            badgeUrlState.value = cached
+            return@LaunchedEffect
+        }
+
+        if (raw.startsWith("gs://")) {
+            runCatching {
+                val ref = FirebaseStorage.getInstance().getReferenceFromUrl(raw)
+                val url = ref.downloadUrl.await()
+                val resolved = url.toString()
+                achievementBadgeUrlCache[raw] = resolved
+                badgeUrlState.value = resolved
+            }.onFailure {
+                badgeUrlState.value = null
+            }
+        } else {
+            achievementBadgeUrlCache[raw] = raw
+            badgeUrlState.value = raw
+        }
+    }
 
     val arrowRotation by animateFloatAsState(
         targetValue = if (expanded) 180f else 0f,
@@ -953,6 +951,25 @@ private fun ExpandableAchievementRow(achievement: AchievementDefinition) {
                     color = TextDark,
                     modifier = Modifier.weight(1f)
                 )
+
+                val badgeUrl = badgeUrlState.value
+                if (badgeUrl != null) {
+                    val context = androidx.compose.ui.platform.LocalContext.current
+                    AsyncImage(
+                        model = ImageRequest.Builder(context)
+                            .data(badgeUrl)
+                            .crossfade(false) // avoid re-fade on scroll when loaded from cache
+                            .build(),
+                        contentDescription = "${achievement.title} badge",
+                        contentScale = ContentScale.Fit,
+                        filterQuality = FilterQuality.High,
+                        modifier = Modifier
+                            .size(56.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                }
+
                 Icon(
                     imageVector = Icons.Default.ArrowDropDown,
                     contentDescription = if (expanded) "Collapse" else "Expand",
@@ -1057,24 +1074,23 @@ private fun AdminMissionAchievementDialog(
         else -> AdminEntityKind.MISSION
     }
 
-    val rewardOptions = listOf(10, 20, 50, 100, 200, 500)
-    val missionTypeOptions = listOf("General", "One-time", "Daily", "Weekly")
-    
+    val rewardOptions = listOf(10, 20, 50, 75, 100, 200, 500)
+    val missionTypeOptions = listOf("Daily", "Weekly")
+
     val triggerOptions = listOf(
+        "collect_rock" to "Identify or collect a rock",
         "post_comment" to "Post a comment",
         "read_rock_info" to "Read rock information",
-        "collect_rock" to "Collect a rock",
         "upload_photo" to "Upload a photo",
-        "visit_location" to "Visit a location",
-        "complete_mission" to "Complete a mission"
+        "visit_location" to "View a map location",
+        "edit_personal_notes" to "Edit personal notes"
     )
     val triggerMenuExpanded = remember { mutableStateOf(false) }
 
-    val startOptions = listOf("none", "today", "signup", "custom_existing")
+    val startOptions = listOf("none", "today", "custom_existing")
     val startOptionLabels = mapOf(
         "none" to "No start",
         "today" to "Start today",
-        "signup" to "User registration date",
         "custom_existing" to "Keep existing start date"
     )
 
@@ -1120,7 +1136,6 @@ private fun AdminMissionAchievementDialog(
 
     val initialStartOption = when {
         initialMission == null || initialMission.startAt == 0L -> "none"
-        initialMission.startAt < 0L -> "signup"
         else -> "custom_existing"
     }
     val startOptionState = remember { mutableStateOf(initialStartOption) }
@@ -1493,7 +1508,8 @@ private fun AdminMissionAchievementDialog(
                                 target = target,
                                 rewardPoints = reward,
                                 trigger = trigger,
-                                rockId = rockId
+                                rockId = rockId,
+                                imageFile = initialAchievement?.imageFile ?: ""
                             )
                             onSaveAchievement(achievement)
                         }
