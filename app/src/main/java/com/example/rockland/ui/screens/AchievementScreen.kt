@@ -184,6 +184,7 @@ fun AchievementScreen(
                 0 -> LeaderboardTabContent(entries = uiState.leaderboard)
                 1 -> InProgressTabContent(missions = inProgressMissions)
                 2 -> AllTabContent(
+                    currentPoints = uiState.currentPoints,
                     achievementsSummary = uiState.achievementsSummary,
                     missionsSummary = uiState.missionsSummary,
                     completedAchievements = uiState.completedAchievements,
@@ -204,7 +205,10 @@ fun AchievementScreen(
                     onDeleteMission = { mission -> missionToDelete.value = mission },
                     onDeleteAchievement = { achievement -> achievementToDelete.value = achievement }
                 )
-                3 -> AchievementsTabContent(allAchievements = uiState.allAchievements)
+                3 -> AchievementsTabContent(
+                    allAchievements = uiState.allAchievements,
+                    achievementProgress = uiState.achievementProgress
+                )
             }
         }
 
@@ -530,6 +534,7 @@ private fun MissionCard(mission: MissionWithProgress) {
 
 @Composable
 private fun AllTabContent(
+    currentPoints: Int,
     achievementsSummary: String,
     missionsSummary: String,
     completedAchievements: List<AchievementDefinition>,
@@ -569,6 +574,10 @@ private fun AllTabContent(
                     value = missionsSummary
                 )
             }
+        }
+
+        item {
+            CurrentScoreCard(points = currentPoints)
         }
 
         item {
@@ -806,6 +815,42 @@ private fun SummaryCard(
         }
     }
 }
+
+// user's current points
+@Composable
+private fun CurrentScoreCard(
+    points: Int,
+    modifier: Modifier = Modifier
+) {
+    Card(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(90.dp),
+        colors = CardDefaults.cardColors(containerColor = Rock1.copy(alpha = 0.16f)),
+        shape = RoundedCornerShape(16.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(12.dp),
+            verticalArrangement = Arrangement.Center
+        ) {
+            Text(
+                text = "Current Score",
+                fontSize = 12.sp,
+                color = TextDark.copy(alpha = 0.7f)
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = "$points pts",
+                fontSize = 20.sp,
+                fontWeight = FontWeight.Bold,
+                color = TextDark
+            )
+        }
+    }
+}
+
 
 @Composable
 private fun SectionHeader(title: String) {
@@ -1083,7 +1128,8 @@ private fun AdminMissionAchievementDialog(
         "read_rock_info" to "Read rock information",
         "upload_photo" to "Upload a photo",
         "visit_location" to "View a map location",
-        "edit_personal_notes" to "Edit personal notes"
+        "edit_personal_notes" to "Edit personal notes",
+        "friend_count" to "Gain a new friend"
     )
     val triggerMenuExpanded = remember { mutableStateOf(false) }
 
@@ -1122,9 +1168,9 @@ private fun AdminMissionAchievementDialog(
 
     val initialTrigger = initialMission?.trigger ?: initialAchievement?.trigger ?: ""
     val triggerState = remember { mutableStateOf(initialTrigger) }
-    val triggerDisplayLabel = remember(triggerState.value) {
-        triggerOptions.find { it.first == triggerState.value }?.second ?: triggerState.value.ifBlank { "Select trigger condition" }
-    }
+    val triggerDisplayLabel =
+        triggerOptions.firstOrNull { it.first == triggerState.value }?.second
+            ?: triggerState.value.ifBlank { "Select trigger condition" }
 
     val rockIdInitial = initialMission?.rockId ?: initialAchievement?.rockId
     val rockIdTextState = remember { mutableStateOf(rockIdInitial?.toString().orEmpty()) }
@@ -1523,8 +1569,12 @@ private fun AdminMissionAchievementDialog(
 
 
 
-}@Composable
-private fun AchievementsTabContent(allAchievements: List<AchievementDefinition>) {
+}
+@Composable
+private fun AchievementsTabContent(
+    allAchievements: List<AchievementDefinition>,
+    achievementProgress: Map<String, Int>
+) {
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         verticalArrangement = Arrangement.spacedBy(12.dp)
@@ -1556,14 +1606,30 @@ private fun AchievementsTabContent(allAchievements: List<AchievementDefinition>)
             item { EmptyState(text = "No achievements defined yet.") }
         } else {
             items(allAchievements, key = { it.id }) { achievement ->
-                AchievementDataCard(achievement = achievement)
+                val current = achievementProgress[achievement.id] ?: 0
+                AchievementDataCard(
+                    achievement = achievement,
+                    current = current
+                )
             }
         }
     }
 }
-
 @Composable
-private fun AchievementDataCard(achievement: AchievementDefinition) {
+private fun AchievementDataCard(
+    achievement: AchievementDefinition,
+    current: Int
+) {
+    val target = achievement.target.coerceAtLeast(1)
+    val shownCurrent = current.coerceIn(0, target)
+    val progress = (shownCurrent.toFloat() / target.toFloat()).coerceIn(0f, 1f)
+
+    val animatedProgress by animateFloatAsState(
+        targetValue = progress,
+        animationSpec = tween(800, easing = LinearEasing),
+        label = "achievement_progress_${achievement.id}"
+    )
+
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = Color.White),
@@ -1587,6 +1653,29 @@ private fun AchievementDataCard(achievement: AchievementDefinition) {
             }
 
             Spacer(Modifier.height(10.dp))
+
+            // ✅ current / target
+            Text(
+                text = "Progress: $shownCurrent/$target",
+                fontSize = 11.sp,
+                color = TextDark.copy(alpha = 0.7f)
+            )
+
+            Spacer(Modifier.height(6.dp))
+
+            // ✅ progress bar
+            LinearProgressIndicator(
+                progress = { animatedProgress },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(6.dp)
+                    .clip(RoundedCornerShape(3.dp)),
+                color = Rock1,
+                trackColor = Rock1.copy(alpha = 0.2f)
+            )
+
+            Spacer(Modifier.height(10.dp))
+
             Text(
                 text = "Trigger: ${achievement.trigger.ifBlank { "N/A" }}",
                 fontSize = 11.sp,

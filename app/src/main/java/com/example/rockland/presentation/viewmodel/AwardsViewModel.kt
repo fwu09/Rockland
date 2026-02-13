@@ -25,7 +25,9 @@ data class AwardsUiState(
     val completedAchievements: List<AchievementDefinition> = emptyList(),
     val allAchievements: List<AchievementDefinition> = emptyList(),
     val missionsSummary: String = "0/0",
-    val achievementsSummary: String = "0/0"
+    val achievementsSummary: String = "0/0",
+    val achievementProgress: Map<String, Int> = emptyMap(),
+    val currentPoints: Int = 0
 )
 
 class AwardsViewModel(
@@ -48,7 +50,11 @@ class AwardsViewModel(
                 val achievements = repository.fetchAchievements()
                 val leaderboard = repository.fetchLeaderboardEntries(currentMonthId())
 
-                val userMissionProgress = if (!userId.isNullOrBlank()) {
+                val currentUserPoints = if (!userId.isNullOrBlank()) {
+                    repository.fetchUserPoints(userId)   // or fetchUserMonthlyPoints(userId)
+                } else 0
+
+                var userMissionProgress = if (!userId.isNullOrBlank()) {
                     repository.fetchUserMissionProgress(userId)
                 } else {
                     emptyMap()
@@ -58,6 +64,40 @@ class AwardsViewModel(
                     repository.fetchUserAchievementIds(userId)
                 } else {
                     emptyList()
+                }
+
+                // get trigger counts (suspend)  the coroutine
+                var userTriggerCounts: Map<String, Int> = if (!userId.isNullOrBlank()) {
+                    repository.fetchUserTriggerCounts(userId)
+                } else {
+                    emptyMap()
+                }
+
+                // sync friend_count using real friendships count
+                if (!userId.isNullOrBlank()) {
+                    runCatching {
+                        val actualFriends = repository.fetchFriendCount(userId)
+                        val storedFriends = userTriggerCounts["friend_count"] ?: 0
+                        val nettFriends = actualFriends - storedFriends
+
+                        if (nettFriends > 0) {
+                            // refresh triggerCounts after applying
+                            repository.applyTrigger(userId, "friend_count", nettFriends)
+
+                            // refresh triggerCounts after applying so missionUI updates
+                            userTriggerCounts = repository.fetchUserTriggerCounts(userId)
+                            userMissionProgress = repository.fetchUserMissionProgress(userId) // refresh for UI
+                        }
+                    }.onFailure {
+                        android.util.Log.e("AwardsViewModel", "friend_count sync failed", it)
+                    }
+                }
+
+                // build achievementId -> current
+                val achievementProgressMap: Map<String, Int> = achievements.associate { a ->
+                    val target = a.target.coerceAtLeast(1)
+                    val currentRaw = userTriggerCounts[a.trigger] ?: 0
+                    a.id to currentRaw.coerceIn(0, target)
                 }
 
                 val missionUi = missions.map { mission ->
@@ -84,12 +124,14 @@ class AwardsViewModel(
                 _uiState.value = AwardsUiState(
                     isLoading = false,
                     leaderboard = leaderboard,
+                    currentPoints = currentUserPoints,
                     missions = missionUi,
                     completedMissions = completedMissions,
                     completedAchievements = completedAchievements,
                     allAchievements = achievements,
                     missionsSummary = "${completedMissions.size}/${missions.size}",
-                    achievementsSummary = "${completedAchievements.size}/${achievements.size}"
+                    achievementsSummary = "${completedAchievements.size}/${achievements.size}",
+                    achievementProgress = achievementProgressMap
                 )
             } catch (e: Throwable) {
                 android.util.Log.e("AwardsViewModel", "loadAwards failed", e)
@@ -98,15 +140,6 @@ class AwardsViewModel(
         }
     }
 
-    fun upsertMission(definition: MissionDefinition) {
-        viewModelScope.launch {
-            try {
-                repository.upsertMission(definition)
-                loadAwards()
-            } catch (_: Throwable) {
-            }
-        }
-    }
 
     fun deleteMission(missionId: String) {
         viewModelScope.launch {
@@ -117,6 +150,16 @@ class AwardsViewModel(
             }
         }
     }
+
+    fun upsertMission(definition: MissionDefinition) {
+        viewModelScope.launch {
+            try {
+                repository.upsertMission(definition)
+                loadAwards()
+            } catch (_: Throwable) { }
+        }
+    }
+
 
     fun upsertAchievement(definition: AchievementDefinition) {
         viewModelScope.launch {
@@ -153,6 +196,22 @@ class AwardsViewModel(
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T {
             return AwardsViewModel(userId = userId) as T
+        }
+    }
+
+    //award trigger
+    fun applyTrigger(trigger: String, incrementBy: Int = 1, onDone: (() -> Unit)? = null) {
+        val uid = userId ?: return
+        if (trigger.isBlank()) return
+
+        viewModelScope.launch {
+            try {
+                repository.applyTrigger(uid, trigger, incrementBy)
+                loadAwards()      // refresh UI (completedAchievements etc.)
+                onDone?.invoke()
+            } catch (e: Throwable) {
+                android.util.Log.e("AwardsViewModel", "applyTrigger failed: $trigger", e)
+            }
         }
     }
 }

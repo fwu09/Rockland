@@ -14,6 +14,7 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import android.util.Log
+import com.google.firebase.storage.FirebaseStorage
 
 class AwardsRepository(
     private val firestore: FirebaseFirestore = FirebaseFirestore.getInstance()
@@ -22,6 +23,43 @@ class AwardsRepository(
     private val achievementsRef = firestore.collection("achievements")
     private val usersRef = firestore.collection("users")
     private val leaderboardsRef = firestore.collection("leaderboards")
+
+    // award friend count
+    private val friendshipsRef = firestore.collection("friendships")
+
+    suspend fun fetchFriendCount(userId: String): Int {
+        if (userId.isBlank()) return 0
+        val snap = friendshipsRef
+            .whereArrayContains("users", userId)
+            .get()
+            .await()
+        return snap.size()
+    }
+
+
+    private val storage = FirebaseStorage.getInstance()
+    private val urlCache = mutableMapOf<String, String>()
+
+    // achievement badges image url
+    private suspend fun resolveAchievementImageUrl(imageFile: String): String {
+        val s = imageFile.trim().trim('"')
+        if (s.isBlank()) return ""
+        if (s.startsWith("http")) return s
+
+        urlCache[s]?.let { return it }
+
+        val resolved = try {
+            when {
+                s.startsWith("gs://") -> storage.getReferenceFromUrl(s).downloadUrl.await().toString()
+                else -> storage.reference.child(s).downloadUrl.await().toString()
+            }
+        } catch (_: Exception) {
+            ""
+        }
+
+        if (resolved.isNotBlank()) urlCache[s] = resolved
+        return resolved
+    }
 
     suspend fun fetchMissions(): List<MissionDefinition> {
         val snapshot = missionsRef.get().await()
@@ -55,7 +93,8 @@ class AwardsRepository(
                 rewardPoints = (doc.getLong("rewardPoints") ?: 0L).toInt(),
                 trigger = doc.getString("trigger") ?: "",
                 rockId = (doc.getLong("rockId") ?: 0L).takeIf { it > 0L }?.toInt(),
-                imageFile = image
+                imageFile = resolveAchievementImageUrl(image),
+                rewardBoxType = doc.getString("rewardBoxType")
             )
 
             // Debug: verify Firestore imageFile mapping
@@ -127,6 +166,7 @@ class AwardsRepository(
         }
 
         val achievements = achievementsSnapshot.documents.map { doc ->
+            val image = ((doc.get("imageFile") ?: doc.get("imagefile")) as? String).orEmpty()
             AchievementDefinition(
                 id = doc.id,
                 title = doc.getString("title") ?: "",
@@ -135,7 +175,8 @@ class AwardsRepository(
                 rewardPoints = (doc.getLong("rewardPoints") ?: 0L).toInt(),
                 trigger = doc.getString("trigger") ?: "",
                 rockId = (doc.getLong("rockId") ?: 0L).takeIf { it > 0L }?.toInt(),
-                imageFile = ((doc.get("imageFile") ?: doc.get("imagefile")) as? String).orEmpty()
+                imageFile = resolveAchievementImageUrl(image),
+                rewardBoxType = doc.getString("rewardBoxType")?.trim()
             )
         }
 
@@ -216,6 +257,11 @@ class AwardsRepository(
                 pointsDelta += achievement.rewardPoints
                 achievementsCompletedDelta += 1
                 messages.add("Achievement unlocked: ${achievement.title} (+${achievement.rewardPoints} pts)")
+
+                // award box if defined
+                achievement.rewardBoxType?.trim()?.lowercase()?.let { boxType ->
+                    boxIncrements[boxType] = (boxIncrements[boxType] ?: 0L) + 1L
+                }
             }
         }
 
@@ -235,18 +281,13 @@ class AwardsRepository(
         // user base updates
         batch.set(usersRef.document(userId), userUpdates, SetOptions.merge())
 
-        // Apply box inventory increments (safe even if user doc is new)
+        // Apply box inventory increments
+        val userRef = usersRef.document(userId)
+
         boxIncrements.forEach { (boxType, amount) ->
-            batch.set(
-                usersRef.document(userId),
-                mapOf(
-                    "boxInventory" to mapOf(
-                        boxType to FieldValue.increment(amount)
-                    )
-                ),
-                SetOptions.merge()
-            )
+            batch.update(userRef, "boxInventory.$boxType", FieldValue.increment(amount))
         }
+
 
         if (!isAdminLike) {
             val monthId = currentMonthId()
@@ -258,7 +299,10 @@ class AwardsRepository(
             )
         }
 
+
+        Log.d("TRIGGER_DEBUG", "boxIncrements=$boxIncrements pointsDelta=$pointsDelta messages=$messages")
         batch.commit().await()
+        Log.d("TRIGGER_DEBUG", "applyTrigger called: $trigger")
         return TriggerResult(messages = messages, pointsDelta = pointsDelta)
     }
 
@@ -318,4 +362,42 @@ class AwardsRepository(
         val formatter = SimpleDateFormat("yyyy-MM", Locale.US)
         return formatter.format(Date())
     }
+
+    suspend fun fetchUserTriggerCounts(userId: String): Map<String, Int> {
+        if (userId.isBlank()) return emptyMap()
+
+        val snap = usersRef.document(userId).get().await()
+        val raw = snap.get("triggerCounts") as? Map<*, *> ?: return emptyMap()
+
+        return raw.mapNotNull { (k, v) ->
+            val key = k as? String ?: return@mapNotNull null
+
+            val value = when (v) {
+                is Long -> v.toInt()
+                is Int -> v
+                is Double -> v.toInt()
+                is Float -> v.toInt()
+                else -> 0
+            }
+
+            key to value
+        }.toMap()
+    }
+
+    suspend fun fetchUserPoints(userId: String): Int {
+        if (userId.isBlank()) return 0
+        val snap = firestore.collection("users").document(userId).get().await()
+        return (snap.getLong("points") ?: 0L).toInt()
+    }
+
+    // to show monthly score instead
+    suspend fun fetchUserMonthlyPoints(userId: String): Int {
+        if (userId.isBlank()) return 0
+        val snap = firestore.collection("users").document(userId).get().await()
+        return (snap.getLong("monthlyPoints") ?: 0L).toInt()
+    }
+
+
+
 }
+

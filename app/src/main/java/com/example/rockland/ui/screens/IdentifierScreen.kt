@@ -93,6 +93,7 @@ import kotlin.math.roundToInt
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.rockland.presentation.viewmodel.CollectionViewModel
 import androidx.compose.runtime.collectAsState
+import com.example.rockland.presentation.viewmodel.AwardsViewModel
 
 
 sealed interface ScanUiState {
@@ -110,6 +111,12 @@ fun IdentifierScreen(userViewModel: UserViewModel) {
     val context = LocalContext.current
     val collectionViewModel: CollectionViewModel = viewModel()
     var uiState by remember { mutableStateOf<ScanUiState>(ScanUiState.Idle) }
+    val uid = userViewModel.currentUser.collectAsState().value?.uid
+    val awardsViewModel: AwardsViewModel = viewModel(
+        factory = AwardsViewModel.Factory(uid)
+    )
+    var lastCountedUri by remember { mutableStateOf<Uri?>(null) }
+
 
     // recent scans (in-memory)
     val recentScans = remember { mutableStateListOf<String>() }
@@ -139,6 +146,19 @@ fun IdentifierScreen(userViewModel: UserViewModel) {
             if (recentScans.firstOrNull() != text) {
                 recentScans.add(0, text)
                 if (recentScans.size > 5) recentScans.removeAt(recentScans.lastIndex)
+            }
+        }
+    }
+
+    // for achievements
+    LaunchedEffect(uiState) {
+        val s = uiState
+        if (s is ScanUiState.Success) {
+            val uid = userViewModel.currentUser.value?.uid
+            if (!uid.isNullOrBlank() && lastCountedUri != s.imageUri) {
+                lastCountedUri = s.imageUri
+                // match Firestore trigger
+                awardsViewModel.applyTrigger("identify_rock", 1)
             }
         }
     }

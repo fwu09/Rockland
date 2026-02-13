@@ -228,6 +228,16 @@ class CollectionViewModel(
                     val triggerResult = awardsRepository.applyTrigger(userId, "collect_rock")
                     triggerResult.messages.firstOrNull()?.let { _events.tryEmit(CollectionEvent.Success(it, rockId = rockId)) }
                 }
+
+                //trigger for ultra rare rock eollection
+                runCatching {
+                    val rockIntId = rockId.toIntOrNull()
+                    val rock = rockIntId?.let { rockRepository.getRockById(it) }
+                    if (rock?.rockRarity?.trim()?.equals("Ultra Rare", ignoreCase = true) == true) {
+                        val ultraResult = awardsRepository.applyTrigger(userId, "collect_ultra_rare")
+                        ultraResult.messages.firstOrNull()?.let { _events.tryEmit(CollectionEvent.Success(it, rockId = rockId)) }
+                    }
+                }
                 // 4) successful add + reload
                 _events.tryEmit(CollectionEvent.Success("Added to collection.", rockId = rockId))
                 loadUserCollection(userId)
@@ -446,6 +456,16 @@ class CollectionViewModel(
                         val triggerResult = awardsRepository.applyTrigger(userId, "collect_rock")
                         triggerResult.messages.firstOrNull()?.let { _events.tryEmit(CollectionEvent.Success(it, rockId = rockId)) }
                     }
+
+                    runCatching {
+                        val rockIntId = rockId.toIntOrNull()
+                        val rock = rockIntId?.let { rockRepository.getRockById(it) }
+                        if (rock?.rockRarity?.trim()?.equals("Ultra Rare", ignoreCase = true) == true) {
+                            val ultraResult = awardsRepository.applyTrigger(userId, "collect_ultra_rare")
+                            ultraResult.messages.firstOrNull()?.let { _events.tryEmit(CollectionEvent.Success(it, rockId = rockId)) }
+                        }
+                    }
+
                 }
 
                 // 3) Upload image
