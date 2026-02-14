@@ -647,6 +647,15 @@ class ContentReviewRepository(
         batch.commit().await()
     }
 
+    suspend fun deleteNotification(userId: String, notificationId: String) {
+        if (userId.isBlank() || notificationId.isBlank()) return
+        usersRef.document(userId)
+            .collection("notifications")
+            .document(notificationId)
+            .delete()
+            .await()
+    }
+
     // --------------- Help requests ---------------
 
     suspend fun submitHelpRequest(
