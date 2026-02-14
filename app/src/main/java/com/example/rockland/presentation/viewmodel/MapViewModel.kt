@@ -17,6 +17,7 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import android.content.Context
@@ -99,6 +100,21 @@ class MapViewModel(
     private var pendingFocusLocationId: String? = null
     private val _openInfoCardForLocationId = MutableStateFlow<String?>(null)
     val openInfoCardForLocationId: StateFlow<String?> = _openInfoCardForLocationId.asStateFlow()
+
+    private val _showAddLocationForm = MutableStateFlow(false)
+    val showAddLocationForm: StateFlow<Boolean> = _showAddLocationForm.asStateFlow()
+
+    private val _showEditLocation = MutableStateFlow<RockLocation?>(null)
+    val showEditLocation: StateFlow<RockLocation?> = _showEditLocation.asStateFlow()
+
+    private val _locationToDelete = MutableStateFlow<RockLocation?>(null)
+    val locationToDelete: StateFlow<RockLocation?> = _locationToDelete.asStateFlow()
+
+    private val _selectedLocationCategoryLatest = MutableStateFlow<String?>(null)
+    val selectedLocationCategoryLatest: StateFlow<String?> = _selectedLocationCategoryLatest.asStateFlow()
+
+    private val _locationCrudError = MutableSharedFlow<String>(extraBufferCapacity = 1)
+    val locationCrudError = _locationCrudError.asSharedFlow()
 
     init {
         loadNearbyRocks()
@@ -457,6 +473,124 @@ class MapViewModel(
                 _communityContent.value = content
             } catch (_: Throwable) {
                 _communityContent.value = RockCommunityContent()
+            }
+        }
+    }
+
+    fun showAddLocationForm() {
+        _showAddLocationForm.value = true
+    }
+
+    fun hideAddLocationForm() {
+        _showAddLocationForm.value = false
+    }
+
+    fun showEditLocation(location: RockLocation) {
+        _showEditLocation.value = location
+        _selectedLocationCategoryLatest.value = null
+        viewModelScope.launch {
+            try {
+                val latest = repository.getLocation(location.id)
+                _selectedLocationCategoryLatest.value = latest?.category ?: location.category
+            } catch (_: Throwable) {
+                _selectedLocationCategoryLatest.value = location.category
+            }
+        }
+    }
+
+    fun hideEditLocation() {
+        _showEditLocation.value = null
+        _selectedLocationCategoryLatest.value = null
+    }
+
+    fun requestDeleteLocation(location: RockLocation) {
+        _locationToDelete.value = location
+    }
+
+    fun cancelDeleteLocation() {
+        _locationToDelete.value = null
+    }
+
+    fun createLocation(
+        name: String,
+        description: String,
+        latitude: Double,
+        longitude: Double
+    ) {
+        viewModelScope.launch {
+            try {
+                val newId = repository.createLocation(
+                    name = name,
+                    description = description,
+                    latitude = latitude,
+                    longitude = longitude
+                )
+                val newLocation = RockLocation(
+                    id = newId,
+                    name = name.trim(),
+                    description = description.trim(),
+                    latitude = latitude,
+                    longitude = longitude,
+                    category = "unverified"
+                )
+                allLocations = allLocations + newLocation
+                applyCurrentFilter()
+                loadNearbyRocks()
+                hideAddLocationForm()
+                _submissionMessages.tryEmit("Location added successfully.")
+            } catch (t: Throwable) {
+                _locationCrudError.tryEmit(t.message ?: "Failed to add location.")
+            }
+        }
+    }
+
+    fun updateLocation(
+        locationId: String,
+        name: String,
+        description: String,
+        latitude: Double,
+        longitude: Double
+    ) {
+        viewModelScope.launch {
+            try {
+                repository.updateLocation(
+                    locationId = locationId,
+                    name = name,
+                    description = description,
+                    latitude = latitude,
+                    longitude = longitude
+                )
+                loadNearbyRocks()
+                if (_selectedLocation.value?.id == locationId) {
+                    _selectedLocation.value = _uiState.value.locations.firstOrNull { it.id == locationId }
+                        ?: _selectedLocation.value?.copy(
+                            name = name,
+                            description = description,
+                            latitude = latitude,
+                            longitude = longitude
+                        )
+                    loadCommunityContent(locationId)
+                }
+                hideEditLocation()
+                _submissionMessages.tryEmit("Location updated successfully.")
+            } catch (t: Throwable) {
+                _locationCrudError.tryEmit(t.message ?: "Failed to update location.")
+            }
+        }
+    }
+
+    fun deleteLocation(locationId: String) {
+        viewModelScope.launch {
+            try {
+                repository.deleteLocation(locationId)
+                if (_selectedLocation.value?.id == locationId) {
+                    clearSelection()
+                }
+                _locationToDelete.value = null
+                loadNearbyRocks()
+                _submissionMessages.tryEmit("Location deleted successfully.")
+            } catch (t: Throwable) {
+                _locationCrudError.tryEmit(t.message ?: "Failed to delete location.")
             }
         }
     }
