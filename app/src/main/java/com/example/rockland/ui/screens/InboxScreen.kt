@@ -25,7 +25,6 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material3.Button
@@ -101,6 +100,7 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.material.icons.automirrored.filled.OpenInNew
 
 @Composable
 fun InboxScreen(
@@ -1263,7 +1263,7 @@ private fun NotificationsDialog(
                                                     onGoToPage(notification)
                                                 },
                                                 leadingIcon = {
-                                                    Icon(Icons.Default.OpenInNew, contentDescription = null, tint = TextDark)
+                                                    Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = null, tint = TextDark)
                                                 }
                                             )
                                             DropdownMenuItem(
@@ -3025,7 +3025,7 @@ private fun NotificationListContent(
                                                 onGoToPage(notification)
                                             },
                                             leadingIcon = {
-                                                Icon(Icons.Default.OpenInNew, contentDescription = null, tint = TextDark)
+                                                Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = null, tint = TextDark)
                                             }
                                         )
                                         DropdownMenuItem(
