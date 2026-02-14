@@ -200,8 +200,9 @@ fun AppNavigation(
                     navController.navigate(AppRoutes.WELCOME) {
                         popUpTo(AppRoutes.MAIN) { inclusive = true }
                     }
-                }
-            )
+                },
+                onValidationError = { msg -> userViewModel.showError(msg) },
+                )
         }
         }
 

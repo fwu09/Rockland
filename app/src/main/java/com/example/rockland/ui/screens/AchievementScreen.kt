@@ -184,6 +184,7 @@ fun AchievementScreen(
                 0 -> LeaderboardTabContent(entries = uiState.leaderboard)
                 1 -> InProgressTabContent(missions = inProgressMissions)
                 2 -> AllTabContent(
+                    currentPoints = uiState.currentPoints,
                     achievementsSummary = uiState.achievementsSummary,
                     missionsSummary = uiState.missionsSummary,
                     completedAchievements = uiState.completedAchievements,
@@ -204,7 +205,10 @@ fun AchievementScreen(
                     onDeleteMission = { mission -> missionToDelete.value = mission },
                     onDeleteAchievement = { achievement -> achievementToDelete.value = achievement }
                 )
-                3 -> AchievementsTabContent(allAchievements = uiState.allAchievements)
+                3 -> AchievementsTabContent(
+                    allAchievements = uiState.allAchievements,
+                    achievementProgress = uiState.achievementProgress
+                )
             }
         }
 
@@ -363,14 +367,73 @@ private fun InProgressTabContent(missions: List<MissionWithProgress>) {
             }
         } else {
             items(missions, key = { it.mission.id }) { mission ->
-                MissionCard(mission = mission)
+                MissionCard(
+                    mission = mission,
+                    expandable = false
+                )
             }
         }
     }
 }
 
+// colours for mission card
+private fun missionTypeKey(type: String): String =
+    type.trim().lowercase()
+
+private fun missionAccentColor(type: String): Color {
+    return when (missionTypeKey(type)) {
+        "weekly" -> Color(0xFF4A90E2) // weekly mission colour
+        else -> Rock1 // daily mission colour
+    }
+}
+
+// using triggers for the requirement to finish mission
+private fun triggerActionLabel(trigger: String): String {
+    return when (trigger.trim().lowercase()) {
+        "identify_rock" -> "Identify rocks"
+        "collect_rock" -> "Collect new rocks"
+        "collect_ultra_rare" -> "Collect ULTRA RARE rocks"
+        "post_comment" -> "Post comments"
+        "read_rock_info" -> "Read rock information"
+        "upload_photo" -> "Upload photos"
+        "visit_location" -> "Visit locations"
+        "edit_personal_notes" -> "Edit personal notes"
+        "friend_count" -> "Gain friends"
+        else -> "Complete this action"
+    }
+}
+
+//helper for achievement trigger references
+private fun achievementHintText(achievement: AchievementDefinition): String {
+    val action = triggerActionLabel(achievement.trigger)
+    val target = achievement.target
+    val rockPart = achievement.rockId?.let { " (Rock ID: $it)" }.orEmpty()
+    return "Hint: $action $target time(s)$rockPart"
+}
+
+
+private fun missionHintText(mission: MissionWithProgress): String {
+    val action = triggerActionLabel(mission.mission.trigger)
+    val target = mission.mission.target
+
+    // if a mission is tied to a specific rockId, mention it
+    val rockPart = mission.mission.rockId?.let { " (Rock ID: $it)" }.orEmpty()
+
+    return "Hint: $action $target time(s)$rockPart"
+}
+
+
+private fun missionCardBg(type: String): Color =
+    missionAccentColor(type).copy(alpha = 0.18f)
+
+private fun missionChipBg(type: String): Color =
+    missionAccentColor(type).copy(alpha = 0.12f)
+
 @Composable
-private fun MissionCard(mission: MissionWithProgress) {
+private fun MissionCard(
+    mission: MissionWithProgress,
+    expandable: Boolean = false
+) {
     val progressCapped = mission.progress.coerceIn(0f, 1f)
     val animatedProgress by animateFloatAsState(
         targetValue = progressCapped,
@@ -378,21 +441,22 @@ private fun MissionCard(mission: MissionWithProgress) {
         label = "mission_progress"
     )
 
-    // Expand state
     var expanded by rememberSaveable(mission.mission.id) { mutableStateOf(false) }
 
-    // Rotate arrow
     val arrowRotation by animateFloatAsState(
         targetValue = if (expanded) 180f else 0f,
         animationSpec = tween(200),
         label = "arrow_rotation"
     )
 
+    val accent = missionAccentColor(mission.mission.type)
+    val cardBg = missionCardBg(mission.mission.type)
+
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable { expanded = !expanded },
-        colors = CardDefaults.cardColors(containerColor = Rock1.copy(alpha = 0.18f)),
+            .then(if (expandable) Modifier.clickable { expanded = !expanded } else Modifier),
+        colors = CardDefaults.cardColors(containerColor = cardBg),
         shape = RoundedCornerShape(16.dp)
     ) {
         Column(
@@ -400,7 +464,7 @@ private fun MissionCard(mission: MissionWithProgress) {
                 .fillMaxWidth()
                 .padding(12.dp)
         ) {
-            // Title + dropdown icon
+            // Title row
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically
@@ -412,23 +476,44 @@ private fun MissionCard(mission: MissionWithProgress) {
                     color = TextDark,
                     modifier = Modifier.weight(1f)
                 )
-                Icon(
-                    imageVector = Icons.Default.ArrowDropDown,
-                    contentDescription = if (expanded) "Collapse" else "Expand",
-                    tint = TextDark.copy(alpha = 0.8f),
-                    modifier = Modifier.rotate(arrowRotation)
+
+                if (expandable) {
+                    Icon(
+                        imageVector = Icons.Default.ArrowDropDown,
+                        contentDescription = if (expanded) "Collapse" else "Expand",
+                        tint = TextDark.copy(alpha = 0.8f),
+                        modifier = Modifier.rotate(arrowRotation)
+                    )
+                }
+            } // closes Row
+
+            // Type chip: Daily/Weekly Mission
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(missionChipBg(mission.mission.type))
+                    .padding(horizontal = 10.dp, vertical = 4.dp)
+            ) {
+                Text(
+                    text = mission.mission.type.ifBlank { "Daily" },
+                    fontSize = 11.sp,
+                    color = accent,
+                    fontWeight = FontWeight.SemiBold
                 )
             }
+
+            Spacer(modifier = Modifier.height(6.dp))
+
+            Text(
+                text = missionHintText(mission),
+                fontSize = 12.sp,
+                color = TextDark.copy(alpha = 0.85f)
+            )
 
             Spacer(modifier = Modifier.height(4.dp))
 
             Text(
                 text = "Mission Progress: ${mission.current}/${mission.mission.target}",
-                fontSize = 12.sp,
-                color = TextDark.copy(alpha = 0.7f)
-            )
-            Text(
-                text = "Time Expiry: ${mission.expiryLabel}",
                 fontSize = 12.sp,
                 color = TextDark.copy(alpha = 0.7f)
             )
@@ -441,8 +526,8 @@ private fun MissionCard(mission: MissionWithProgress) {
                     .fillMaxWidth()
                     .height(6.dp)
                     .clip(RoundedCornerShape(3.dp)),
-                color = Rock1,
-                trackColor = Rock1.copy(alpha = 0.2f)
+                color = accent,
+                trackColor = accent.copy(alpha = 0.2f)
             )
 
             Spacer(modifier = Modifier.height(6.dp))
@@ -450,76 +535,46 @@ private fun MissionCard(mission: MissionWithProgress) {
             Text(
                 text = "+${mission.mission.rewardPoints} points",
                 fontSize = 12.sp,
-                color = Rock1
+                color = accent
             )
 
-            // Expandable criteria section
-            AnimatedVisibility(
-                visible = expanded,
-                enter = fadeIn(tween(120)) + expandVertically(tween(180)),
-                exit = fadeOut(tween(120)) + shrinkVertically(tween(180))
-            ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 12.dp)
+            // Expandable details only in "All"
+            if (expandable) {
+                AnimatedVisibility(
+                    visible = expanded,
+                    enter = fadeIn(tween(120)) + expandVertically(tween(180)),
+                    exit = fadeOut(tween(120)) + shrinkVertically(tween(180))
                 ) {
-                    Spacer(modifier = Modifier.height(6.dp))
-
-                    Text(
-                        text = "Criteria",
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = TextDark
-                    )
-
-                    Spacer(modifier = Modifier.height(6.dp))
-
-                    // Description
-                    if (mission.mission.description.isNotBlank()) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 12.dp)
+                    ) {
                         Text(
-                            text = "• ${mission.mission.description}",
-                            fontSize = 12.sp,
-                            color = TextDark.copy(alpha = 0.85f)
+                            text = "Criteria",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = TextDark
                         )
-                        Spacer(modifier = Modifier.height(4.dp))
-                    }
 
-                    // Trigger condition
-                    if (mission.mission.trigger.isNotBlank()) {
-                        Text(
-                            text = "• Trigger: ${mission.mission.trigger}",
-                            fontSize = 12.sp,
-                            color = TextDark.copy(alpha = 0.85f)
-                        )
-                        Spacer(modifier = Modifier.height(4.dp))
-                    }
+                        Spacer(modifier = Modifier.height(6.dp))
 
-                    // Target requirement
-                    Text(
-                        text = "• Requirement: Do ${mission.mission.target} time(s)",
-                        fontSize = 12.sp,
-                        color = TextDark.copy(alpha = 0.85f)
-                    )
+                        if (mission.mission.description.isNotBlank()) {
+                            Text(
+                                text = "• ${mission.mission.description}",
+                                fontSize = 12.sp,
+                                color = TextDark.copy(alpha = 0.85f)
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                        }
 
-                    // Optional: Rock ID requirement
-                    mission.mission.rockId?.let { rockId ->
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = "• Rock ID: $rockId",
-                            fontSize = 12.sp,
-                            color = TextDark.copy(alpha = 0.85f)
-                        )
-                    }
-
-                    // Optional: Type
-                    if (mission.mission.type.isNotBlank()) {
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = "• Type: ${mission.mission.type}",
-                            fontSize = 12.sp,
-                            color = TextDark.copy(alpha = 0.85f)
-                        )
+                        if (mission.mission.trigger.isNotBlank()) {
+                            Text(
+                                text = "• Trigger: ${mission.mission.trigger}",
+                                fontSize = 12.sp,
+                                color = TextDark.copy(alpha = 0.85f)
+                            )
+                        }
                     }
                 }
             }
@@ -530,6 +585,7 @@ private fun MissionCard(mission: MissionWithProgress) {
 
 @Composable
 private fun AllTabContent(
+    currentPoints: Int,
     achievementsSummary: String,
     missionsSummary: String,
     completedAchievements: List<AchievementDefinition>,
@@ -572,6 +628,10 @@ private fun AllTabContent(
         }
 
         item {
+            CurrentScoreCard(points = currentPoints)
+        }
+
+        item {
             SectionHeader(title = "Completed Achievements")
         }
 
@@ -591,7 +651,10 @@ private fun AllTabContent(
             item { EmptyState(text = "No missions completed yet.") }
         } else {
             items(completedMissions, key = { it.mission.id }) { mission ->
-                MissionCard(mission = mission)
+                MissionCard(
+                    mission = mission,
+                    expandable = true
+                )
             }
         }
 
@@ -605,7 +668,7 @@ private fun AllTabContent(
                     EmptyState(text = "No missions defined yet.")
                 }
             } else {
-                items(allMissions) { mission ->
+                items(allMissions, key = { it.id }) { mission ->
                     AdminMissionRow(
                         mission = mission,
                         onEdit = { onEditMission(mission) },
@@ -623,7 +686,7 @@ private fun AllTabContent(
                     EmptyState(text = "No achievements defined yet.")
                 }
             } else {
-                items(allAchievements) { achievement ->
+                items(allAchievements, key = { it.id }) { achievement ->
                     AdminAchievementRow(
                         achievement = achievement,
                         onEdit = { onEditAchievement(achievement) },
@@ -806,6 +869,42 @@ private fun SummaryCard(
         }
     }
 }
+
+// user's current points
+@Composable
+private fun CurrentScoreCard(
+    points: Int,
+    modifier: Modifier = Modifier
+) {
+    Card(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(90.dp),
+        colors = CardDefaults.cardColors(containerColor = Rock1.copy(alpha = 0.16f)),
+        shape = RoundedCornerShape(16.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(12.dp),
+            verticalArrangement = Arrangement.Center
+        ) {
+            Text(
+                text = "Current Score",
+                fontSize = 12.sp,
+                color = TextDark.copy(alpha = 0.7f)
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = "$points pts",
+                fontSize = 20.sp,
+                fontWeight = FontWeight.Bold,
+                color = TextDark
+            )
+        }
+    }
+}
+
 
 @Composable
 private fun SectionHeader(title: String) {
@@ -1020,6 +1119,7 @@ private fun ExpandableAchievementRow(achievement: AchievementDefinition) {
                         Spacer(modifier = Modifier.height(4.dp))
                     }
 
+                    /* hide trigger code
                     if (achievement.trigger.isNotBlank()) {
                         Text(
                             text = "• Trigger: ${achievement.trigger}",
@@ -1027,10 +1127,10 @@ private fun ExpandableAchievementRow(achievement: AchievementDefinition) {
                             color = TextDark.copy(alpha = 0.85f)
                         )
                         Spacer(modifier = Modifier.height(4.dp))
-                    }
+                    }*/
 
                     Text(
-                        text = "• Requirement: Do ${achievement.target} time(s)",
+                        text = "• ${achievementHintText(achievement)}",
                         fontSize = 12.sp,
                         color = TextDark.copy(alpha = 0.85f)
                     )
@@ -1078,13 +1178,16 @@ private fun AdminMissionAchievementDialog(
     val missionTypeOptions = listOf("Daily", "Weekly")
 
     val triggerOptions = listOf(
-        "collect_rock" to "Identify or collect a rock",
+        "identify_rock" to "Identify a rock (identification success)",
+        "collect_rock" to "Collect a new rock (added to collection)",
         "post_comment" to "Post a comment",
         "read_rock_info" to "Read rock information",
         "upload_photo" to "Upload a photo",
         "visit_location" to "View a map location",
-        "edit_personal_notes" to "Edit personal notes"
-    )
+        "edit_personal_notes" to "Edit personal notes",
+        "friend_count" to "Gain a new friend",
+        "collect_ultra_rare" to "Collect a new Ultra Rare rock"
+        )
     val triggerMenuExpanded = remember { mutableStateOf(false) }
 
     val startOptions = listOf("none", "today", "custom_existing")
@@ -1103,12 +1206,14 @@ private fun AdminMissionAchievementDialog(
     )
 
     val titleState =
-        remember { mutableStateOf(initialMission?.title ?: initialAchievement?.title ?: "") }
-    val descriptionState = remember {
-        mutableStateOf(
-            initialMission?.description ?: initialAchievement?.description ?: ""
-        )
-    }
+        remember(initialMission?.id, initialAchievement?.id) {
+            mutableStateOf(initialMission?.title ?: initialAchievement?.title ?: "")
+        }
+
+    val descriptionState =
+        remember(initialMission?.id, initialAchievement?.id) {
+            mutableStateOf(initialMission?.description ?: initialAchievement?.description ?: "")
+        }
 
     val initialReward = initialMission?.rewardPoints
         ?: initialAchievement?.rewardPoints
@@ -1121,10 +1226,13 @@ private fun AdminMissionAchievementDialog(
         remember { mutableStateOf(if (initialTarget > 0) initialTarget.toString() else "") }
 
     val initialTrigger = initialMission?.trigger ?: initialAchievement?.trigger ?: ""
-    val triggerState = remember { mutableStateOf(initialTrigger) }
-    val triggerDisplayLabel = remember(triggerState.value) {
-        triggerOptions.find { it.first == triggerState.value }?.second ?: triggerState.value.ifBlank { "Select trigger condition" }
-    }
+    val triggerState =
+        remember(initialMission?.id, initialAchievement?.id, initialTrigger) {
+            mutableStateOf(initialTrigger)
+        }
+    val triggerDisplayLabel =
+        triggerOptions.firstOrNull { it.first == triggerState.value }?.second
+            ?: triggerState.value.ifBlank { "Select trigger condition" }
 
     val rockIdInitial = initialMission?.rockId ?: initialAchievement?.rockId
     val rockIdTextState = remember { mutableStateOf(rockIdInitial?.toString().orEmpty()) }
@@ -1523,8 +1631,12 @@ private fun AdminMissionAchievementDialog(
 
 
 
-}@Composable
-private fun AchievementsTabContent(allAchievements: List<AchievementDefinition>) {
+}
+@Composable
+private fun AchievementsTabContent(
+    allAchievements: List<AchievementDefinition>,
+    achievementProgress: Map<String, Int>
+) {
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         verticalArrangement = Arrangement.spacedBy(12.dp)
@@ -1556,14 +1668,30 @@ private fun AchievementsTabContent(allAchievements: List<AchievementDefinition>)
             item { EmptyState(text = "No achievements defined yet.") }
         } else {
             items(allAchievements, key = { it.id }) { achievement ->
-                AchievementDataCard(achievement = achievement)
+                val current = achievementProgress[achievement.id] ?: 0
+                AchievementDataCard(
+                    achievement = achievement,
+                    current = current
+                )
             }
         }
     }
 }
-
 @Composable
-private fun AchievementDataCard(achievement: AchievementDefinition) {
+private fun AchievementDataCard(
+    achievement: AchievementDefinition,
+    current: Int
+) {
+    val target = achievement.target.coerceAtLeast(1)
+    val shownCurrent = current.coerceIn(0, target)
+    val progress = (shownCurrent.toFloat() / target.toFloat()).coerceIn(0f, 1f)
+
+    val animatedProgress by animateFloatAsState(
+        targetValue = progress,
+        animationSpec = tween(800, easing = LinearEasing),
+        label = "achievement_progress_${achievement.id}"
+    )
+
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = Color.White),
@@ -1577,6 +1705,16 @@ private fun AchievementDataCard(achievement: AchievementDefinition) {
                 color = TextDark
             )
 
+            Spacer(Modifier.height(6.dp))
+
+            Text(
+                text = achievementHintText(achievement),
+                fontSize = 12.sp,
+                color = TextDark.copy(alpha = 0.85f)
+            )
+            Spacer(Modifier.height(6.dp))
+
+            /*
             if (achievement.description.isNotBlank()) {
                 Spacer(Modifier.height(6.dp))
                 Text(
@@ -1584,14 +1722,31 @@ private fun AchievementDataCard(achievement: AchievementDefinition) {
                     fontSize = 12.sp,
                     color = TextDark.copy(alpha = 0.8f)
                 )
-            }
+            }*/
 
             Spacer(Modifier.height(10.dp))
+
+            // current / target
             Text(
-                text = "Trigger: ${achievement.trigger.ifBlank { "N/A" }}",
+                text = "Progress: $shownCurrent/$target",
                 fontSize = 11.sp,
                 color = TextDark.copy(alpha = 0.7f)
             )
+
+            Spacer(Modifier.height(6.dp))
+
+            // progress bar
+            LinearProgressIndicator(
+                progress = { animatedProgress },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(6.dp)
+                    .clip(RoundedCornerShape(3.dp)),
+                color = Rock1,
+                trackColor = Rock1.copy(alpha = 0.2f)
+            )
+
+            Spacer(Modifier.height(10.dp))
 
             achievement.rockId?.let { rockId ->
                 Spacer(Modifier.height(4.dp))
@@ -1610,7 +1765,7 @@ private fun AchievementDataCard(achievement: AchievementDefinition) {
                     .padding(horizontal = 10.dp, vertical = 6.dp)
             ) {
                 Text(
-                    text = "Achievement Badge + ${achievement.rewardPoints} points",
+                    text = "+${achievement.rewardPoints} points • Badge",
                     fontSize = 11.sp,
                     color = Rock1,
                     fontWeight = FontWeight.SemiBold

@@ -92,6 +92,14 @@ import com.example.rockland.ui.theme.Rock1
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import com.example.rockland.data.repository.AwardsRepository
+import kotlin.collections.mapNotNull
+import kotlin.collections.orEmpty
+import kotlin.text.trim
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.rememberScrollState
 
 @Composable
 fun InboxScreen(
@@ -2369,6 +2377,7 @@ private fun AvatarOrInitials(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun UserPreviewProfileScreen(
     friend: FriendRelation,
@@ -2380,6 +2389,37 @@ private fun UserPreviewProfileScreen(
     val repo = remember { UserProfileRepository() }
     var loadedUser by remember(friend.friendUserId) { mutableStateOf<UserData?>(null) }
     var loadError by remember(friend.friendUserId) { mutableStateOf<String?>(null) }
+
+    // display achievmenet badges
+// display achievement badges
+    val awardsRepo = remember { AwardsRepository() }
+    var badgeUrls by remember { mutableStateOf<List<String>>(emptyList()) }
+
+// Recompute whenever the loaded profile changes (or its badges list changes)
+    LaunchedEffect(loadedUser?.userId, loadedUser?.badges) {
+        val badges = loadedUser?.badges.orEmpty()
+        if (badges.isEmpty()) {
+            badgeUrls = emptyList()
+            return@LaunchedEffect
+        }
+
+        runCatching {
+            val defs = awardsRepo.fetchAchievements()
+
+            val byId = defs.associateBy { it.id.trim() }
+            val byTitle = defs.associateBy { it.title.trim() }
+
+            badges.mapNotNull { b ->
+                val key = b.trim()
+                byId[key]?.imageFile?.takeIf { it.isNotBlank() }
+                    ?: byTitle[key]?.imageFile?.takeIf { it.isNotBlank() }
+            }
+        }.onSuccess { urls ->
+            badgeUrls = urls.distinct()
+        }.onFailure {
+            badgeUrls = emptyList()
+        }
+    }
 
     LaunchedEffect(friend.friendUserId) {
         loadError = null
@@ -2512,10 +2552,62 @@ private fun UserPreviewProfileScreen(
                         fontWeight = FontWeight.SemiBold,
                         color = TextDark
                     )
-                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
-                        ProgressStatCard(label = "Points", value = points.toString(), modifier = Modifier.weight(1f))
-                        ProgressStatCard(label = "Achievements", value = achievements.toString(), modifier = Modifier.weight(1f))
-                        ProgressStatCard(label = "Missions", value = missions.toString(), modifier = Modifier.weight(1f))
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        ProgressStatCard(
+                            label = "Points",
+                            value = points.toString(),
+                            modifier = Modifier.weight(1f)
+                        )
+                        ProgressStatCard(
+                            label = "Achievements",
+                            value = achievements.toString(),
+                            modifier = Modifier.weight(1f)
+                        )
+                        ProgressStatCard(
+                            label = "Missions",
+                            value = missions.toString(),
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                    if (badgeUrls.isNotEmpty()) {
+                        Spacer(modifier = Modifier.height(3.dp))
+                        Text(
+                            text = "Badges",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.SemiBold,
+                            color = TextDark
+                        )
+
+                        Spacer(modifier = Modifier.height(4.dp))
+
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(max = 220.dp)
+                                .verticalScroll(rememberScrollState())
+                        ) {
+                            FlowRow(
+                                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                verticalArrangement = Arrangement.spacedBy(12.dp),
+                                maxItemsInEachRow = 3
+                            ) {
+                                badgeUrls.forEach { url ->
+                                    AsyncImage(
+                                        model = url,
+                                        contentDescription = "Badge",
+                                        modifier = Modifier
+                                            .size(100.dp)
+                                            .clip(CircleShape)
+                                            .background(Color(0xFFF0F0F0))
+                                            .padding(4.dp),
+                                        contentScale = ContentScale.Fit
+                                    )
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -3216,3 +3308,4 @@ private fun ConversationRow(
         }
     }
 }
+

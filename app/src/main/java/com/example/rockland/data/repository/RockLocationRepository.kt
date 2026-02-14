@@ -21,24 +21,74 @@ class RockLocationRepository(
     suspend fun fetchRockLocations(): List<RockLocation> {
         val snapshot = collectionRef.get().await()
         return snapshot.documents.mapNotNull { doc ->
-            val lat = doc.getDouble("latitude")
-            val lng = doc.getDouble("longitude")
-            val name = doc.getString("name") ?: ""
-            val description = doc.getString("description") ?: ""
-            val category = doc.getString("category") ?: ""
-            if (lat != null && lng != null) {
-                RockLocation(
-                    id = doc.id,
-                    name = name,
-                    description = description,
-                    latitude = lat,
-                    longitude = lng,
-                    category = category
-                )
-            } else {
-                null
-            }
+            docToRockLocation(doc)
         }
+    }
+
+    suspend fun getLocation(locationId: String): RockLocation? {
+        if (locationId.isBlank()) return null
+        val doc = collectionRef.document(locationId).get().await() ?: return null
+        if (!doc.exists()) return null
+        return docToRockLocation(doc)
+    }
+
+    private fun docToRockLocation(doc: com.google.firebase.firestore.DocumentSnapshot): RockLocation? {
+        val lat = doc.getDouble("latitude")
+        val lng = doc.getDouble("longitude")
+        val name = doc.getString("name") ?: ""
+        val description = doc.getString("description") ?: ""
+        val category = doc.getString("category") ?: ""
+        if (lat != null && lng != null) {
+            return RockLocation(
+                id = doc.id,
+                name = name,
+                description = description,
+                latitude = lat,
+                longitude = lng,
+                category = category
+            )
+        }
+        return null
+    }
+
+    suspend fun createLocation(
+        name: String,
+        description: String,
+        latitude: Double,
+        longitude: Double
+    ): String {
+        val payload = mapOf(
+            "name" to name.trim(),
+            "description" to description.trim(),
+            "latitude" to latitude,
+            "longitude" to longitude,
+            "category" to "unverified"
+        )
+        val ref = collectionRef.add(payload).await()
+        return ref.id
+    }
+
+    suspend fun updateLocation(
+        locationId: String,
+        name: String,
+        description: String,
+        latitude: Double,
+        longitude: Double
+    ) {
+        if (locationId.isBlank()) return
+        collectionRef.document(locationId).update(
+            mapOf(
+                "name" to name.trim(),
+                "description" to description.trim(),
+                "latitude" to latitude,
+                "longitude" to longitude
+            )
+        ).await()
+    }
+
+    suspend fun deleteLocation(locationId: String) {
+        if (locationId.isBlank()) return
+        collectionRef.document(locationId).delete().await()
     }
 
     // Marks a rock location as verified.

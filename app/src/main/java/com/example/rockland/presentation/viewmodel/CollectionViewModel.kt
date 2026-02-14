@@ -202,13 +202,16 @@ class CollectionViewModel(
                 }
 
                 // 1. creates collection doc and captures new rock itemId
-                val itemId = repository.addRockToCollection(
+                repository.addRockToCollection(
                     userId = userId,
                     rockId = rockId,
                     rockSource = "identify",
                     rockName = rockName,
                     thumbnailUrl = thumbnailUrl
                 )
+
+                // docId is now rockId (because CollectionRepository uses .document(rockId))
+                val itemId = rockId
 
                 // 2. image gets uploaded into user's collection item
                 if (capturedImageUri != null && context != null) {
@@ -227,6 +230,16 @@ class CollectionViewModel(
                 runCatching {
                     val triggerResult = awardsRepository.applyTrigger(userId, "collect_rock")
                     triggerResult.messages.firstOrNull()?.let { _events.tryEmit(CollectionEvent.Success(it, rockId = rockId)) }
+                }
+
+                //trigger for ultra rare rock collection
+                runCatching {
+                    val rockIntId = rockId.toIntOrNull()
+                    val rock = rockIntId?.let { rockRepository.getRockById(it) }
+                    if (rock?.rockRarity?.trim()?.equals("Ultra Rare", ignoreCase = true) == true) {
+                        val ultraResult = awardsRepository.applyTrigger(userId, "collect_ultra_rare")
+                        ultraResult.messages.firstOrNull()?.let { _events.tryEmit(CollectionEvent.Success(it, rockId = rockId)) }
+                    }
                 }
                 // 4) successful add + reload
                 _events.tryEmit(CollectionEvent.Success("Added to collection.", rockId = rockId))
@@ -430,21 +443,36 @@ class CollectionViewModel(
             try {
                 // 1) Find existing entry
                 val existingItemId = repository.findCollectionItemId(userId, rockId, rockName)
+                val isNewAdd = existingItemId == null
 
                 // 2) Create entry if missing
-                val isNewAdd = existingItemId == null
-                val itemId = existingItemId ?: repository.addRockToCollection(
-                    userId = userId,
-                    rockId = rockId,
-                    rockSource = rockSource,
-                    rockName = rockName,
-                    thumbnailUrl = thumbnailUrl
-                )
+                val itemId = existingItemId ?: run {
+                    repository.addRockToCollection(
+                        userId = userId,
+                        rockId = rockId,
+                        rockSource = rockSource,
+                        rockName = rockName,
+                        thumbnailUrl = thumbnailUrl
+                    )
+                    // docId is deterministic now
+                    rockId
+                }
 
                 if (isNewAdd) {
                     runCatching {
                         val triggerResult = awardsRepository.applyTrigger(userId, "collect_rock")
-                        triggerResult.messages.firstOrNull()?.let { _events.tryEmit(CollectionEvent.Success(it, rockId = rockId)) }
+                        triggerResult.messages.firstOrNull()
+                            ?.let { _events.tryEmit(CollectionEvent.Success(it, rockId = rockId)) }
+                    }
+
+                    runCatching {
+                        val rockIntId = rockId.toIntOrNull()
+                        val rock = rockIntId?.let { rockRepository.getRockById(it) }
+                        if (rock?.rockRarity?.trim()?.equals("Ultra Rare", ignoreCase = true) == true) {
+                            val ultraResult = awardsRepository.applyTrigger(userId, "collect_ultra_rare")
+                            ultraResult.messages.firstOrNull()
+                                ?.let { _events.tryEmit(CollectionEvent.Success(it, rockId = rockId)) }
+                        }
                     }
                 }
 

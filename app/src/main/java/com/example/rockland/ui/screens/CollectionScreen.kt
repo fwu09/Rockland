@@ -85,6 +85,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Locale
+import com.example.rockland.util.TextValidationUtil
 
 @Composable
 fun CollectionScreen(
@@ -944,9 +945,12 @@ private fun AddEditRockDialog(
                             onError("Please fill in all required fields.")
                             return@Button
                         }
-                        if (desc.length !in 10..1000) {
-                            onError("Description must be between 10 and 1000 characters. Please edit your description and try again.")
-                            return@Button
+                        when (val res = TextValidationUtil.validateRockDescription(desc)) {
+                            is TextValidationUtil.Result.Error -> {
+                                onError(res.message)
+                                return@Button
+                            }
+                            is TextValidationUtil.Result.Ok -> { /* continue */ }
                         }
                         if (initialRock == null && imageUri.value == null) {
                             onError("You must upload a rock image before submitting.")

@@ -32,7 +32,10 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.MoreVert
@@ -50,6 +53,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
@@ -97,6 +101,8 @@ import com.example.rockland.util.TimeFormatter
 import com.example.rockland.data.repository.UserProfileRepository
 import androidx.compose.ui.layout.ContentScale
 import kotlinx.coroutines.launch
+import com.example.rockland.util.ImageValidationUtil
+import com.example.rockland.util.TextValidationUtil
 
 private val RockLocation.coordinates: LatLng
     get() = LatLng(latitude, longitude)
@@ -151,46 +157,28 @@ fun MapScreen(
         contract = ActivityResultContracts.GetContent()
     ) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
-        val mimeType = context.contentResolver.getType(uri) ?: ""
-        val sizeOk = runCatching {
-            val length = context.contentResolver
-                .openAssetFileDescriptor(uri, "r")
-                ?.use { it.length }
-                ?: -1L
-            length in 1..20L * 1024L * 1024L
-        }.getOrDefault(false)
-        val typeOk = mimeType == "image/jpeg" || mimeType == "image/png"
-        if (!typeOk || !sizeOk) {
-            userViewModel?.showError(
-                "Upload failed. The image must be a JPEG or PNG and under 20MB."
-            )
-            annotationImageUri.value = null
-        } else {
-            annotationImageUri.value = uri
+        when (val res = ImageValidationUtil.validateTypeAndSize(context, uri)) {
+            is ImageValidationUtil.Result.Ok -> annotationImageUri.value = uri
+            is ImageValidationUtil.Result.Error -> {
+                userViewModel?.showError(res.message)
+                annotationImageUri.value = null
+            }
         }
     }
+
     val editAnnotationPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
     ) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
-        val mimeType = context.contentResolver.getType(uri) ?: ""
-        val sizeOk = runCatching {
-            val length = context.contentResolver
-                .openAssetFileDescriptor(uri, "r")
-                ?.use { it.length }
-                ?: -1L
-            length in 1..20L * 1024L * 1024L
-        }.getOrDefault(false)
-        val typeOk = mimeType == "image/jpeg" || mimeType == "image/png"
-        if (!typeOk || !sizeOk) {
-            userViewModel?.showError(
-                "Upload failed. The image must be a JPEG or PNG and under 20MB."
-            )
-            editAnnotationImageUri.value = null
-        } else {
-            editAnnotationImageUri.value = uri
+        when (val res = ImageValidationUtil.validateTypeAndSize(context, uri)) {
+            is ImageValidationUtil.Result.Ok -> editAnnotationImageUri.value = uri
+            is ImageValidationUtil.Result.Error -> {
+                userViewModel?.showError(res.message)
+                editAnnotationImageUri.value = null
+            }
         }
     }
+
     val userData = userViewModel?.userData?.collectAsState()?.value
     val normalizedRole = userData?.role?.trim()?.lowercase()
     val isVerifiedExpert = normalizedRole == "verified_expert"
@@ -206,6 +194,13 @@ fun MapScreen(
         hasLocationPermission.value = fineGranted || coarseGranted
     }
 
+    LaunchedEffect(Unit) {
+        launch {
+            viewModel.locationCrudError.collect { msg ->
+                userViewModel?.showError(msg)
+            }
+        }
+    }
     LaunchedEffect(Unit) {
         if (userViewModel != null) {
             launch {
@@ -250,6 +245,10 @@ fun MapScreen(
     val activeCommunityTab by viewModel.activeCommunityTab.collectAsState()
     val showCommentForm by viewModel.showAddCommentForm.collectAsState()
     val showPhotoForm by viewModel.showAddPhotoForm.collectAsState()
+    val showAddLocationForm by viewModel.showAddLocationForm.collectAsState()
+    val showEditLocation by viewModel.showEditLocation.collectAsState()
+    val locationToDelete by viewModel.locationToDelete.collectAsState()
+    val selectedLocationCategoryLatest by viewModel.selectedLocationCategoryLatest.collectAsState()
 
     val commentDraft = remember { mutableStateOf("") }
     val photoCaptionDraft = remember { mutableStateOf("") }
@@ -257,9 +256,17 @@ fun MapScreen(
     val photoPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
     ) { uri ->
-            photoUri.value = uri
+        if (uri == null) return@rememberLauncherForActivityResult
+        when (val res = ImageValidationUtil.validateTypeAndSize(context, uri)) {
+            is ImageValidationUtil.Result.Ok -> photoUri.value = uri
+            is ImageValidationUtil.Result.Error -> {
+                userViewModel?.showError(res.message)
+                photoUri.value = null
+            }
         }
-    val commentFormScroll = rememberScrollState()
+    }
+
+     val commentFormScroll = rememberScrollState()
     val photoFormScroll = rememberScrollState()
     val commentPhotoUris = remember { mutableStateOf<List<Uri>>(emptyList())}
 
@@ -267,13 +274,16 @@ fun MapScreen(
     val commentPhotoPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
     ) { uri ->
-        if (uri != null) {
-            val current = commentPhotoUris.value
-            if (current.size < 3) {
-                commentPhotoUris.value = current + uri
+        if (uri == null) return@rememberLauncherForActivityResult
+        when (val res = ImageValidationUtil.validateTypeAndSize(context, uri)) {
+            is ImageValidationUtil.Result.Ok -> {
+                val current = commentPhotoUris.value
+                if (current.size < 3) commentPhotoUris.value = current + uri
             }
+            is ImageValidationUtil.Result.Error -> userViewModel?.showError(res.message)
         }
     }
+
 
     LaunchedEffect(recenterRequests) {
         if (recenterRequests > 0) {
@@ -352,6 +362,134 @@ fun MapScreen(
         }
     }
 
+    val addLocationName = remember { mutableStateOf("") }
+    val addLocationDesc = remember { mutableStateOf("") }
+    val addLocationLat = remember { mutableStateOf("") }
+    val addLocationLng = remember { mutableStateOf("") }
+
+    if (showAddLocationForm) {
+        AddLocationDialog(
+            name = addLocationName.value,
+            onNameChange = { addLocationName.value = it },
+            description = addLocationDesc.value,
+            onDescriptionChange = { addLocationDesc.value = it },
+            latitude = addLocationLat.value,
+            onLatitudeChange = { addLocationLat.value = it },
+            longitude = addLocationLng.value,
+            onLongitudeChange = { addLocationLng.value = it },
+            categoryDisplay = "unverified",
+            onDismiss = {
+                viewModel.hideAddLocationForm()
+                addLocationName.value = ""
+                addLocationDesc.value = ""
+                addLocationLat.value = ""
+                addLocationLng.value = ""
+            },
+            onSubmit = {
+                val nameTrim = addLocationName.value.trim()
+                val descTrim = addLocationDesc.value.trim()
+                val latParsed = addLocationLat.value.trim().toDoubleOrNull()
+                val lngParsed = addLocationLng.value.trim().toDoubleOrNull()
+                when {
+                    nameTrim.isBlank() -> userViewModel?.showError("Name is required.")
+                    descTrim.isBlank() -> userViewModel?.showError("Description is required.")
+                    latParsed == null -> userViewModel?.showError("Latitude must be a number.")
+                    lngParsed == null -> userViewModel?.showError("Longitude must be a number.")
+                    latParsed !in -90.0..90.0 -> userViewModel?.showError("Latitude must be between -90 and 90.")
+                    lngParsed !in -180.0..180.0 -> userViewModel?.showError("Longitude must be between -180 and 180.")
+                    else -> {
+                        val latRounded = "%.6f".format(latParsed).toDouble()
+                        val lngRounded = "%.6f".format(lngParsed).toDouble()
+                        viewModel.createLocation(nameTrim, descTrim, latRounded, lngRounded)
+                        addLocationName.value = ""
+                        addLocationDesc.value = ""
+                        addLocationLat.value = ""
+                        addLocationLng.value = ""
+                    }
+                }
+            }
+        )
+    }
+
+    val editLocation = showEditLocation
+    val editCategoryDisplay = selectedLocationCategoryLatest ?: editLocation?.category ?: ""
+    if (editLocation != null) {
+        EditLocationDialog(
+            location = editLocation,
+            categoryDisplay = editCategoryDisplay,
+            onDismiss = viewModel::hideEditLocation,
+            onSubmit = { name, description, lat, lng ->
+                val nameTrim = name.trim()
+                val descTrim = description.trim()
+                val latParsed = lat.trim().toDoubleOrNull()
+                val lngParsed = lng.trim().toDoubleOrNull()
+                when {
+                    nameTrim.isBlank() -> userViewModel?.showError("Name is required.")
+                    descTrim.isBlank() -> userViewModel?.showError("Description is required.")
+                    latParsed == null -> userViewModel?.showError("Latitude must be a number.")
+                    lngParsed == null -> userViewModel?.showError("Longitude must be a number.")
+                    latParsed !in -90.0..90.0 -> userViewModel?.showError("Latitude must be between -90 and 90.")
+                    lngParsed !in -180.0..180.0 -> userViewModel?.showError("Longitude must be between -180 and 180.")
+                    else -> {
+                        val latRounded = "%.6f".format(latParsed).toDouble()
+                        val lngRounded = "%.6f".format(lngParsed).toDouble()
+                        viewModel.updateLocation(editLocation.id, nameTrim, descTrim, latRounded, lngRounded)
+                    }
+                }
+            }
+        )
+    }
+
+    locationToDelete?.let { loc ->
+        Dialog(onDismissRequest = viewModel::cancelDeleteLocation) {
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 24.dp, vertical = 16.dp),
+                colors = CardDefaults.cardColors(containerColor = Color.White),
+                shape = RoundedCornerShape(20.dp)
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Text(
+                        text = "Delete Location",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = TextDark
+                    )
+                    Text(
+                        text = "Are you sure you want to delete this location?",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextDark.copy(alpha = 0.8f)
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.End
+                    ) {
+                        TextButton(onClick = viewModel::cancelDeleteLocation) {
+                            Text("Cancel", style = MaterialTheme.typography.labelLarge, color = Rock1)
+                        }
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Button(
+                            onClick = { viewModel.deleteLocation(loc.id) },
+                            shape = RoundedCornerShape(16.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = Color(0xFF8B2E2E),
+                                contentColor = Color.White
+                            )
+                        ) {
+                            Text("Delete", style = MaterialTheme.typography.labelLarge)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -423,6 +561,24 @@ fun MapScreen(
                 .background(Color.White, CircleShape)
         ) {
             Icon(Icons.Default.MyLocation, contentDescription = "Locate me", tint = Rock1)
+        }
+
+        if (isVerifiedExpert || isAdmin) {
+            IconButton(
+                onClick = { viewModel.showAddLocationForm() },
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 26.dp)
+                    .size(56.dp)
+                    .background(Rock1.copy(alpha = 0.85f), CircleShape)
+            ) {
+                Icon(
+                    Icons.Default.Add,
+                    contentDescription = "Add rock location",
+                    modifier = Modifier.size(28.dp),
+                    tint = Color.White
+                )
+            }
         }
 
         Column(
@@ -618,6 +774,35 @@ fun MapScreen(
                             modifier = Modifier.fillMaxWidth(),
                             verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
+                            if ((isVerifiedExpert || isAdmin) && selectedLocation != null) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    OutlinedButton(
+                                        onClick = {
+                                            selectedLocation?.let { viewModel.showEditLocation(it) }
+                                        },
+                                        shape = RoundedCornerShape(16.dp),
+                                        modifier = Modifier.weight(1f)
+                                    ) {
+                                        Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(18.dp), tint = TextDark)
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text("Edit", style = MaterialTheme.typography.labelSmall, fontSize = 13.sp)
+                                    }
+                                    OutlinedButton(
+                                        onClick = {
+                                            selectedLocation?.let { viewModel.requestDeleteLocation(it) }
+                                        },
+                                        shape = RoundedCornerShape(16.dp),
+                                        modifier = Modifier.weight(1f)
+                                    ) {
+                                        Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(18.dp), tint = Color(0xFF8B2E2E))
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text("Delete", style = MaterialTheme.typography.labelSmall, fontSize = 13.sp, color = Color(0xFF8B2E2E))
+                                    }
+                                }
+                            }
                             OutlinedButton(
                                 onClick = {
                                     selectedLocation?.id?.let { viewModel.recordReadRockInfo(it) }
@@ -771,17 +956,23 @@ fun MapScreen(
                                     onValueChange = { commentDraft.value = it },
                                     onSubmit = {
                                         val text = commentDraft.value.trim()
-                                        if (text.isNotBlank()) {
-                                            val photos = commentPhotoUris.value
 
-                                            if (photos.isNotEmpty()) {
-                                                viewModel.submitCommentWithPhotos(context, text, photos)
-                                            } else {
-                                                viewModel.submitComment(text)
+                                        when (val res = TextValidationUtil.validateMapComment(text)) {
+                                            is TextValidationUtil.Result.Error -> {
+                                                userViewModel?.showError(res.message)
+                                                return@CommunityInputForm
                                             }
+                                            is TextValidationUtil.Result.Ok -> {
+                                                val photos = commentPhotoUris.value
+                                                if (photos.isNotEmpty()) {
+                                                    viewModel.submitCommentWithPhotos(context, text, photos)
+                                                } else {
+                                                    viewModel.submitComment(text)
+                                                }
 
-                                            commentDraft.value = ""
-                                            commentPhotoUris.value = emptyList()
+                                                commentDraft.value = ""
+                                                commentPhotoUris.value = emptyList()
+                                            }
                                         }
                                     },
                                     onCancel = {
@@ -921,21 +1112,25 @@ fun MapScreen(
                                     onValueChange = { annotationDraft.value = it },
                                     onSubmit = {
                                         val trimmed = annotationDraft.value.trim()
-                                        if (trimmed.length !in 10..1000) {
-                                            userViewModel?.showError(
-                                                "Please enter between 10 and 1000 characters."
-                                            )
-                                            return@CommunityInputForm
+                                        when (val res = TextValidationUtil.validateExpertAnnotation(trimmed)) {
+                                            is TextValidationUtil.Result.Error -> {
+                                                userViewModel?.showError(res.message)
+                                                return@CommunityInputForm
+                                            }
+
+                                            is TextValidationUtil.Result.Ok -> {
+                                                viewModel.addAnnotationWithImage(
+                                                    context = context,
+                                                    note = trimmed,
+                                                    imageUri = annotationImageUri.value
+                                                )
+
+                                                userViewModel?.showInfo("Annotation saved.")
+                                                annotationDraft.value = ""
+                                                annotationImageUri.value = null
+                                                showAnnotationForm.value = false
+                                            }
                                         }
-                                        viewModel.addAnnotationWithImage(
-                                            context = context,
-                                            note = trimmed,
-                                            imageUri = annotationImageUri.value
-                                        )
-                                        userViewModel?.showInfo("Annotation saved.")
-                                        annotationDraft.value = ""
-                                        annotationImageUri.value = null
-                                        showAnnotationForm.value = false
                                     },
                                     onCancel = {
                                         annotationDraft.value = ""
@@ -1035,21 +1230,24 @@ fun MapScreen(
                                             Button(
                                                 onClick = {
                                                     val trimmed = editAnnotationDraft.value.trim()
-                                                    if (trimmed.length !in 10..1000) {
-                                                        userViewModel?.showError(
-                                                            "Please enter between 10 and 1000 characters."
-                                                        )
-                                                        return@Button
+
+                                                    when (val res = TextValidationUtil.validateExpertAnnotation(trimmed)) {
+                                                        is TextValidationUtil.Result.Error -> {
+                                                            userViewModel?.showError(res.message)
+                                                            return@Button
+                                                        }
+                                                        is TextValidationUtil.Result.Ok -> {
+                                                            viewModel.updateAnnotationWithImage(
+                                                                context = context,
+                                                                annotationId = annotation.id,
+                                                                note = trimmed,
+                                                                imageUri = editAnnotationImageUri.value,
+                                                                existingImageUrls = annotation.imageUrls
+                                                            )
+                                                            userViewModel?.showInfo("Annotation updated.")
+                                                            editingAnnotation.value = null
+                                                        }
                                                     }
-                                                    viewModel.updateAnnotationWithImage(
-                                                        context = context,
-                                                        annotationId = annotation.id,
-                                                        note = trimmed,
-                                                        imageUri = editAnnotationImageUri.value,
-                                                        existingImageUrls = annotation.imageUrls
-                                                    )
-                                                    userViewModel?.showInfo("Annotation updated.")
-                                                    editingAnnotation.value = null
                                                 }
                                             ) {
                                                 Text("Save")
@@ -1713,6 +1911,195 @@ private fun CommunityInputForm(
             }
             Button(onClick = onSubmit) {
                 Text(submitLabel)
+            }
+        }
+    }
+}
+
+@Composable
+private fun AddLocationDialog(
+    name: String,
+    onNameChange: (String) -> Unit,
+    description: String,
+    onDescriptionChange: (String) -> Unit,
+    latitude: String,
+    onLatitudeChange: (String) -> Unit,
+    longitude: String,
+    onLongitudeChange: (String) -> Unit,
+    categoryDisplay: String,
+    onDismiss: () -> Unit,
+    onSubmit: () -> Unit
+) {
+    Dialog(onDismissRequest = onDismiss) {
+        Card(
+            shape = RoundedCornerShape(24.dp),
+            colors = CardDefaults.cardColors(containerColor = Color.White),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(20.dp),
+            elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(24.dp)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                Text(
+                    text = "Add Rock Location",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.SemiBold,
+                    color = TextDark
+                )
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = onNameChange,
+                    label = { Text("Name (required)") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    shape = RoundedCornerShape(12.dp)
+                )
+                OutlinedTextField(
+                    value = description,
+                    onValueChange = onDescriptionChange,
+                    label = { Text("Description (required)") },
+                    modifier = Modifier.fillMaxWidth(),
+                    minLines = 2,
+                    shape = RoundedCornerShape(12.dp)
+                )
+                OutlinedTextField(
+                    value = latitude,
+                    onValueChange = onLatitudeChange,
+                    label = { Text("Latitude (-90 to 90, max 6 decimals)") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    shape = RoundedCornerShape(12.dp)
+                )
+                OutlinedTextField(
+                    value = longitude,
+                    onValueChange = onLongitudeChange,
+                    label = { Text("Longitude (-180 to 180, max 6 decimals)") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    shape = RoundedCornerShape(12.dp)
+                )
+                HorizontalDivider(color = Color(0xFFEEEEEE), thickness = 1.dp)
+                Text(
+                    text = "Category: $categoryDisplay",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = TextDark.copy(alpha = 0.7f)
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End
+                ) {
+                    TextButton(onClick = onDismiss) {
+                        Text("Cancel", color = Rock1)
+                    }
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Button(
+                        onClick = onSubmit,
+                        shape = RoundedCornerShape(14.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = Rock1)
+                    ) {
+                        Text("Add")
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun EditLocationDialog(
+    location: RockLocation,
+    categoryDisplay: String,
+    onDismiss: () -> Unit,
+    onSubmit: (name: String, description: String, lat: String, lng: String) -> Unit
+) {
+    var name by remember(location.id) { mutableStateOf(location.name) }
+    var description by remember(location.id) { mutableStateOf(location.description) }
+    var latStr by remember(location.id) { mutableStateOf(location.latitude.toString()) }
+    var lngStr by remember(location.id) { mutableStateOf(location.longitude.toString()) }
+    Dialog(onDismissRequest = onDismiss) {
+        Card(
+            shape = RoundedCornerShape(24.dp),
+            colors = CardDefaults.cardColors(containerColor = Color.White),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(20.dp),
+            elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(24.dp)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                Text(
+                    text = "Edit Rock Location",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.SemiBold,
+                    color = TextDark
+                )
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    label = { Text("Name (required)") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    shape = RoundedCornerShape(12.dp)
+                )
+                OutlinedTextField(
+                    value = description,
+                    onValueChange = { description = it },
+                    label = { Text("Description (required)") },
+                    modifier = Modifier.fillMaxWidth(),
+                    minLines = 2,
+                    shape = RoundedCornerShape(12.dp)
+                )
+                OutlinedTextField(
+                    value = latStr,
+                    onValueChange = { latStr = it },
+                    label = { Text("Latitude (-90 to 90, max 6 decimals)") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    shape = RoundedCornerShape(12.dp)
+                )
+                OutlinedTextField(
+                    value = lngStr,
+                    onValueChange = { lngStr = it },
+                    label = { Text("Longitude (-180 to 180, max 6 decimals)") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    shape = RoundedCornerShape(12.dp)
+                )
+                HorizontalDivider(color = Color(0xFFEEEEEE), thickness = 1.dp)
+                Text(
+                    text = "Category (read-only): $categoryDisplay",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = TextDark.copy(alpha = 0.7f)
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End
+                ) {
+                    TextButton(onClick = onDismiss) {
+                        Text("Cancel", color = Rock1)
+                    }
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Button(
+                        onClick = { onSubmit(name, description, latStr, lngStr) },
+                        shape = RoundedCornerShape(14.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = Rock1)
+                    ) {
+                        Text("Save")
+                    }
+                }
             }
         }
     }

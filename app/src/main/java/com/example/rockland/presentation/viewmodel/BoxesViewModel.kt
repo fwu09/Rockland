@@ -10,6 +10,9 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
+import com.example.rockland.data.repository.CollectionRepository
+import com.example.rockland.data.repository.AwardsRepository
+
 
 data class BoxesUiState(
     val common: Int = 0,
@@ -23,9 +26,11 @@ data class BoxesUiState(
 class BoxesViewModel(
     private val userId: String,
     private val boxRepo: BoxRepository = BoxRepository(),
-    private val firestore: FirebaseFirestore = FirebaseFirestore.getInstance()
+    private val firestore: FirebaseFirestore = FirebaseFirestore.getInstance(),
+    private val awardsRepository: AwardsRepository = AwardsRepository()
 ) : ViewModel() {
 
+    private val collectionRepository = CollectionRepository()
     private val _uiState = MutableStateFlow(BoxesUiState())
     val uiState: StateFlow<BoxesUiState> = _uiState
 
@@ -55,6 +60,18 @@ class BoxesViewModel(
             _uiState.value = _uiState.value.copy(loading = true, error = null)
             try {
                 val result = boxRepo.openBox(userId, type)
+
+                // Only count if it's a NEW rock in the collection
+                val rockId = result.awardedRockId // already a String and not null
+
+                // isRockInCollection() checks rockId
+                val alreadyOwned = collectionRepository.isRockInCollection(userId, rockId, "")
+
+
+                if (result.awardedRarity.trim().equals("Ultra Rare", ignoreCase = true)) {
+                    awardsRepository.applyTrigger(userId, "collect_ultra_rare")
+                }
+
                 // after open, refresh inventory to reflect decrement
                 refreshInventory()
                 _uiState.value = _uiState.value.copy(loading = false, lastResult = result)

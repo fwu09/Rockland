@@ -15,7 +15,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 
 class FirestoreFriendsRepository(
-    db: FirebaseFirestore = FirebaseFirestore.getInstance()
+    private val db: FirebaseFirestore = FirebaseFirestore.getInstance(),
 ) : FriendsDataRepository {
 
     private val usersRef = db.collection("users")
@@ -237,20 +237,38 @@ class FirestoreFriendsRepository(
             val to = doc.getString("toUserId").orEmpty()
             if (to != acceptorUserId) throw Exception("Not allowed")
 
-            // Create friendship
             val users = listOf(from, to).sorted()
             val friendshipId = users.joinToString("_")
-            friendshipsRef.document(friendshipId).set(
-                mapOf(
-                    "users" to users,
-                    "createdAtMillis" to System.currentTimeMillis()
-                )
-            ).await()
 
-            // Mark request accepted (or delete)
-            friendRequestsRef.document(requestId).update("status", "accepted").await()
-        }.fold(onSuccess = { Result.success(Unit) }, onFailure = { Result.failure(it) })
+            val createdNew: Boolean = db.runTransaction { tx ->
+                val friendshipRef = friendshipsRef.document(friendshipId)
+                val friendshipSnap = tx.get(friendshipRef)
+
+                // create friendship only if it doesn't already exist
+                if (!friendshipSnap.exists()) {
+                    tx.set(
+                        friendshipRef,
+                        mapOf(
+                            "users" to users,
+                            "createdAtMillis" to System.currentTimeMillis()
+                        )
+                    )
+                }
+
+                // mark request accepted
+                tx.update(friendRequestsRef.document(requestId), "status", "accepted")
+
+                // return whether friendship was newly created
+                !friendshipSnap.exists()
+            }.await()
+
+            // award ONLY the acceptor w friend_count +1 (the current signed-in user)
+        }.fold(
+            onSuccess = { Result.success(Unit) },
+            onFailure = { Result.failure(it) }
+        )
     }
+
 
     override suspend fun rejectFriendRequest(requestId: String, rejectorUserId: String): Result<Unit> {
         return runCatching {

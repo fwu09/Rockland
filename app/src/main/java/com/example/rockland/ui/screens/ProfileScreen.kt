@@ -70,6 +70,8 @@ import com.example.rockland.ui.theme.Rock1
 import com.example.rockland.ui.theme.Rock3
 import com.example.rockland.ui.theme.TextDark
 import com.example.rockland.util.TimeFormatter
+import androidx.compose.runtime.DisposableEffect
+import com.google.firebase.firestore.FirebaseFirestore
 
 @Composable
 fun ProfileScreen(
@@ -86,6 +88,24 @@ fun ProfileScreen(
     val normalizedRole = (effectiveUserData?.role).orEmpty().trim().lowercase()
     val isAdmin = normalizedRole in listOf("admin", "user_admin")
     val isVerifiedExpert = normalizedRole == "verified_expert"
+
+    val uid = effectiveUserData?.userId.orEmpty()
+    val rocksCollected = remember(uid) { mutableStateOf(0) }
+
+    DisposableEffect(uid) {
+        if (uid.isBlank()) {
+            onDispose { }
+        } else {
+            val reg = FirebaseFirestore.getInstance()
+                .collection("users")
+                .document(uid)
+                .collection("collection")
+                .addSnapshotListener { snap, _ ->
+                    rocksCollected.value = snap?.size() ?: 0
+                }
+            onDispose { reg.remove() }
+        }
+    }
 
     val points = effectiveUserData?.points ?: 0
     val missionsCompleted = effectiveUserData?.missionsCompleted ?: 0
@@ -273,7 +293,7 @@ fun ProfileScreen(
                     )
                     StatTile(
                         modifier = Modifier.weight(1f),
-                        value = if (isAdmin) "All" else "—",
+                        value = if (isAdmin) "All" else rocksCollected.value.toString(),
                         label = "Rocks Collected"
                     )
                 }

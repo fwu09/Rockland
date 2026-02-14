@@ -57,15 +57,15 @@ class BoxRepository(
         }
 
         // Query rocks by rarity (you must store a field like rarity: "Common" in each rock doc)
-        val candidates = rocksRef.whereEqualTo("rarity", rarity).get().await().documents
+        val candidates = rocksRef.whereEqualTo("rockRarity", rarity).get().await().documents
         if (candidates.isEmpty()) {
             // fallback: pick any allowed rarity if the exact rarity has no docs
-            val fallbackDocs = rocksRef.whereIn("rarity", allowedRarities.toList()).get().await().documents
+            val fallbackDocs = rocksRef.whereIn("rockRarity", allowedRarities.toList()).get().await().documents
             if (fallbackDocs.isEmpty()) throw IllegalStateException("No rocks found for box selection")
             val picked = fallbackDocs.random()
             val rockId = picked.id
             awardRockToUser(userId, rockId)
-            return BoxOpenResult(normalized, rockId, picked.getString("rarity") ?: "Unknown")
+            return BoxOpenResult(normalized, rockId, picked.getString("rockRarity") ?: "Unknown")
         }
 
         val picked = candidates.random()

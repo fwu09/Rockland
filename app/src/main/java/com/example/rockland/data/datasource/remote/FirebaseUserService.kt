@@ -57,7 +57,8 @@ data class UserData(
     val achievements: List<String> = listOf(),
     val badges: List<String> = listOf(),
     val triggerCounts: Map<String, Int> = mapOf(),
-    val expertApplication: ExpertApplication = ExpertApplication()
+    val expertApplication: ExpertApplication = ExpertApplication(),
+    val boxInventory: Map<String, Long> = emptyMap()
 )
 
 // Firebase user service (Firestore).

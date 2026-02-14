@@ -1,11 +1,3 @@
-// ✅ Improved UI: SettingsScreen (full file, copy-paste)
-// - Modern Material3 "LargeTopAppBar" with nice scroll behavior
-// - Soft gradient background + elevated cards
-// - Profile header card (avatar + name/email + hint)
-// - Better text field styling + disabled email editing by default (common pattern)
-// - Sticky Save button card at bottom
-// - Upload overlay + tap avatar to change picture
-//
 // NOTE: If you still want email editable, set `enabled = true` on the email field.
 
 package com.example.rockland.ui.screens
@@ -37,7 +29,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.Logout
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -76,6 +67,9 @@ import com.example.rockland.data.datasource.remote.UserData
 import com.example.rockland.ui.theme.Rock1
 import com.example.rockland.ui.theme.Rock3
 import com.example.rockland.ui.theme.TextDark
+import com.example.rockland.util.ImageValidationUtil
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.material.icons.automirrored.filled.Logout
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -85,6 +79,7 @@ fun SettingsScreen(
     onBackClick: () -> Unit = {},
     onSaveClick: (String, String, String) -> Unit = { _, _, _ -> },
     onUploadProfilePicture: (Uri) -> Unit = {},
+    onValidationError: (String) -> Unit = {},
     onLogoutClick: () -> Unit = {}
 ) {
     var firstName by remember(userData?.firstName) { mutableStateOf(userData?.firstName ?: "") }
@@ -96,10 +91,16 @@ fun SettingsScreen(
         userData?.email?.ifBlank { "Your profile" } ?: "Your profile"
     }
 
+    val context = LocalContext.current
+
     val galleryLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
-        if (uri != null) onUploadProfilePicture(uri)
+        if (uri == null) return@rememberLauncherForActivityResult
+        when (val res = ImageValidationUtil.validateTypeAndSize(context, uri)) {
+            is ImageValidationUtil.Result.Ok -> onUploadProfilePicture(uri)
+            is ImageValidationUtil.Result.Error -> onValidationError(res.message)
+        }
     }
 
     val topAppBarScrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
@@ -137,7 +138,7 @@ fun SettingsScreen(
                 actions = {
                     TextButton(onClick = onLogoutClick) {
                         Icon(
-                            imageVector = Icons.Default.Logout,
+                            imageVector = Icons.AutoMirrored.Filled.Logout,
                             contentDescription = null,
                             tint = Color(0xFFE57373),
                             modifier = Modifier.size(18.dp)

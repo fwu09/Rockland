@@ -60,6 +60,9 @@ import com.example.rockland.presentation.viewmodel.CollectionViewModel
 import com.example.rockland.ui.theme.Rock1
 import com.example.rockland.ui.theme.Rock3
 import com.example.rockland.ui.theme.TextDark
+import android.net.Uri
+import android.widget.Toast
+import com.example.rockland.util.ImageValidationUtil
 
 private object RockDictionaryCache {
     // Cache dictionary lookups to avoid repeated requests when tabs change.
@@ -386,19 +389,36 @@ private fun EditNotesSheet(
         contract = ActivityResultContracts.PickMultipleVisualMedia(maxItems = 10)
     ) { uris ->
         if (uris.isEmpty()) return@rememberLauncherForActivityResult
-                collectionViewModel.uploadUserPhotos(
-                    itemId = item.id,
-                    uris = uris,
-                    context = context,
-                    onUploaded = { uploaded ->
-                        if (uploaded.isNotEmpty()) {
-                            val merged = (userImages + uploaded).distinct()
-                            userImages = merged
-                            onItemUpdated(item.copy(userImageUrls = merged))
-                        }
-                    }
-                )
+
+        // Validate each selected image (type + size) before uploading.
+        val validUris = mutableListOf<Uri>()
+        var hadInvalid = false
+        for (u in uris) {
+            when (ImageValidationUtil.validateTypeAndSize(context, u)) {
+                is ImageValidationUtil.Result.Ok -> validUris.add(u)
+                is ImageValidationUtil.Result.Error -> hadInvalid = true
+            }
+        }
+
+        if (hadInvalid) {
+            Toast.makeText(context, ImageValidationUtil.TYPE_SIZE_ERROR, Toast.LENGTH_LONG).show()
+        }
+        if (validUris.isEmpty()) return@rememberLauncherForActivityResult
+
+        collectionViewModel.uploadUserPhotos(
+            itemId = item.id,
+            uris = validUris,
+            context = context,
+            onUploaded = { uploaded ->
+                if (uploaded.isNotEmpty()) {
+                    val merged = (userImages + uploaded).distinct()
+                    userImages = merged
+                    onItemUpdated(item.copy(userImageUrls = merged))
+                }
+            }
+        )
     }
+
 
     Box(
         modifier = Modifier
