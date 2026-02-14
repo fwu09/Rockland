@@ -98,7 +98,7 @@ class AwardsRepository(
             )
 
             // Debug: verify Firestore imageFile mapping
-            Log.d("AwardsRepo", "achievement=${achievement.id}, imageFile=$image")
+            // Log.d("AwardsRepo", "achievement=${achievement.id}, imageFile=$image")
 
             achievement
         }

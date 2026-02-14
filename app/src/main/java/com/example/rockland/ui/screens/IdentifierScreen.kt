@@ -94,6 +94,8 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.rockland.presentation.viewmodel.CollectionViewModel
 import androidx.compose.runtime.collectAsState
 import com.example.rockland.presentation.viewmodel.AwardsViewModel
+import com.example.rockland.util.ImageValidationUtil
+
 
 
 sealed interface ScanUiState {
@@ -204,7 +206,8 @@ fun IdentifierScreen(userViewModel: UserViewModel) {
             when (val state = uiState) {
                 is ScanUiState.Idle -> IdentifierHome(
                     recentScans = recentScans,
-                    onImageSelected = { uri -> uiState = ScanUiState.Loading(uri) }
+                    onImageSelected = { uri -> uiState = ScanUiState.Loading(uri) },
+                    onValidationError = { msg -> userViewModel.showError(msg) }
                 )
 
                 is ScanUiState.Loading -> IdentifierLoadingScreen()
@@ -230,23 +233,33 @@ fun IdentifierScreen(userViewModel: UserViewModel) {
 @Composable
 private fun IdentifierHome(
     recentScans: List<String>,
-    onImageSelected: (Uri) -> Unit
+    onImageSelected: (Uri) -> Unit,
+    onValidationError: (String) -> Unit
 ) {
     val context = LocalContext.current
     var showHowTo by rememberSaveable { mutableStateOf(false) }
 
+    // image input validation
     val galleryLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia()
     ) { uri: Uri? ->
-        uri?.let(onImageSelected)
+        if (uri == null) return@rememberLauncherForActivityResult
+        when (val res = ImageValidationUtil.validateForIdentification(context, uri)) {
+            is ImageValidationUtil.Result.Ok -> onImageSelected(uri)
+            is ImageValidationUtil.Result.Error -> onValidationError(res.message)
+        }
     }
-
+    // iamge input validation
     val cameraLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.TakePicturePreview()
     ) { bitmap ->
         bitmap?.let {
             val uri = saveBitmapToMediaStore(context, it)
-            if (uri != null) onImageSelected(uri)
+            if (uri == null) return@rememberLauncherForActivityResult
+            when (val res = ImageValidationUtil.validateForIdentification(context, uri)) {
+                is ImageValidationUtil.Result.Ok -> onImageSelected(uri)
+                is ImageValidationUtil.Result.Error -> onValidationError(res.message)
+            }
         }
     }
 

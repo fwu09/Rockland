@@ -71,8 +71,8 @@ class CollectionRepository(
                 }
         }
 
-    // Adds a new collection entry and records the dictionary unlock.
-    // Adds a new collection entry and records the dictionary unlock.
+    // add/update collection entry using rockId as documentID
+    // -> returns true if this rock was newly added, false if user has rock
     suspend fun addRockToCollection(
         userId: String,
         rockId: String,
@@ -81,8 +81,12 @@ class CollectionRepository(
         thumbnailUrl: String? = null,
         latitude: Double? = null,
         longitude: Double? = null
-    ): String =
+    ): Boolean =
         suspendCoroutine { cont ->
+
+            val docRef = userCollectionRef(userId)
+                .document(rockId) // ✅ ensures 1 doc per rockId (no duplicates)
+
             val data = hashMapOf(
                 "rockId" to rockId,
                 "rockSource" to rockSource,
@@ -94,26 +98,37 @@ class CollectionRepository(
                 "locationLabel" to "",
                 "notes" to "",
                 "userImageUrls" to emptyList<String>(),
-                "createdAt" to FieldValue.serverTimestamp(),
+                "createdAt" to FieldValue.serverTimestamp(), // only meaningful for new docs
                 "updatedAt" to Timestamp.now()
             )
 
-            userCollectionRef(userId)
-                .add(data)
-                .addOnSuccessListener { docRef ->
-                    // Persist dictionary unlock once discovered.
-                    firestore.collection("users")
-                        .document(userId)
-                        .set(
-                            mapOf("unlockedRockIds" to FieldValue.arrayUnion(rockId)),
-                            SetOptions.merge()
-                        )
-                    cont.resume(docRef.id)   // <-- THIS is the key change
+            firestore.runTransaction { txn ->
+                val snap = txn.get(docRef)
+                val isNew = !snap.exists()
+
+                // Merge so we keep any existing fields not specified here
+                txn.set(docRef, data, SetOptions.merge())
+
+                // Persist dictionary unlock ONCE (only when new)
+                if (isNew) {
+                    val userRef = firestore.collection("users").document(userId)
+                    txn.set(
+                        userRef,
+                        mapOf("unlockedRockIds" to FieldValue.arrayUnion(rockId)),
+                        SetOptions.merge()
+                    )
+                }
+
+                isNew
+            }
+                .addOnSuccessListener { isNew ->
+                    cont.resume(isNew)
                 }
                 .addOnFailureListener { e ->
                     cont.resumeWithException(e)
                 }
         }
+
 
 
     // Updates notes, IDs, and timestamps for one entry.

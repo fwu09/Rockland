@@ -97,6 +97,8 @@ import com.example.rockland.util.TimeFormatter
 import com.example.rockland.data.repository.UserProfileRepository
 import androidx.compose.ui.layout.ContentScale
 import kotlinx.coroutines.launch
+import com.example.rockland.util.ImageValidationUtil
+import com.example.rockland.util.TextValidationUtil
 
 private val RockLocation.coordinates: LatLng
     get() = LatLng(latitude, longitude)
@@ -151,46 +153,28 @@ fun MapScreen(
         contract = ActivityResultContracts.GetContent()
     ) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
-        val mimeType = context.contentResolver.getType(uri) ?: ""
-        val sizeOk = runCatching {
-            val length = context.contentResolver
-                .openAssetFileDescriptor(uri, "r")
-                ?.use { it.length }
-                ?: -1L
-            length in 1..20L * 1024L * 1024L
-        }.getOrDefault(false)
-        val typeOk = mimeType == "image/jpeg" || mimeType == "image/png"
-        if (!typeOk || !sizeOk) {
-            userViewModel?.showError(
-                "Upload failed. The image must be a JPEG or PNG and under 20MB."
-            )
-            annotationImageUri.value = null
-        } else {
-            annotationImageUri.value = uri
+        when (val res = ImageValidationUtil.validateTypeAndSize(context, uri)) {
+            is ImageValidationUtil.Result.Ok -> annotationImageUri.value = uri
+            is ImageValidationUtil.Result.Error -> {
+                userViewModel?.showError(res.message)
+                annotationImageUri.value = null
+            }
         }
     }
+
     val editAnnotationPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
     ) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
-        val mimeType = context.contentResolver.getType(uri) ?: ""
-        val sizeOk = runCatching {
-            val length = context.contentResolver
-                .openAssetFileDescriptor(uri, "r")
-                ?.use { it.length }
-                ?: -1L
-            length in 1..20L * 1024L * 1024L
-        }.getOrDefault(false)
-        val typeOk = mimeType == "image/jpeg" || mimeType == "image/png"
-        if (!typeOk || !sizeOk) {
-            userViewModel?.showError(
-                "Upload failed. The image must be a JPEG or PNG and under 20MB."
-            )
-            editAnnotationImageUri.value = null
-        } else {
-            editAnnotationImageUri.value = uri
+        when (val res = ImageValidationUtil.validateTypeAndSize(context, uri)) {
+            is ImageValidationUtil.Result.Ok -> editAnnotationImageUri.value = uri
+            is ImageValidationUtil.Result.Error -> {
+                userViewModel?.showError(res.message)
+                editAnnotationImageUri.value = null
+            }
         }
     }
+
     val userData = userViewModel?.userData?.collectAsState()?.value
     val normalizedRole = userData?.role?.trim()?.lowercase()
     val isVerifiedExpert = normalizedRole == "verified_expert"
@@ -257,9 +241,17 @@ fun MapScreen(
     val photoPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
     ) { uri ->
-            photoUri.value = uri
+        if (uri == null) return@rememberLauncherForActivityResult
+        when (val res = ImageValidationUtil.validateTypeAndSize(context, uri)) {
+            is ImageValidationUtil.Result.Ok -> photoUri.value = uri
+            is ImageValidationUtil.Result.Error -> {
+                userViewModel?.showError(res.message)
+                photoUri.value = null
+            }
         }
-    val commentFormScroll = rememberScrollState()
+    }
+
+     val commentFormScroll = rememberScrollState()
     val photoFormScroll = rememberScrollState()
     val commentPhotoUris = remember { mutableStateOf<List<Uri>>(emptyList())}
 
@@ -267,13 +259,16 @@ fun MapScreen(
     val commentPhotoPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
     ) { uri ->
-        if (uri != null) {
-            val current = commentPhotoUris.value
-            if (current.size < 3) {
-                commentPhotoUris.value = current + uri
+        if (uri == null) return@rememberLauncherForActivityResult
+        when (val res = ImageValidationUtil.validateTypeAndSize(context, uri)) {
+            is ImageValidationUtil.Result.Ok -> {
+                val current = commentPhotoUris.value
+                if (current.size < 3) commentPhotoUris.value = current + uri
             }
+            is ImageValidationUtil.Result.Error -> userViewModel?.showError(res.message)
         }
     }
+
 
     LaunchedEffect(recenterRequests) {
         if (recenterRequests > 0) {
@@ -771,17 +766,23 @@ fun MapScreen(
                                     onValueChange = { commentDraft.value = it },
                                     onSubmit = {
                                         val text = commentDraft.value.trim()
-                                        if (text.isNotBlank()) {
-                                            val photos = commentPhotoUris.value
 
-                                            if (photos.isNotEmpty()) {
-                                                viewModel.submitCommentWithPhotos(context, text, photos)
-                                            } else {
-                                                viewModel.submitComment(text)
+                                        when (val res = TextValidationUtil.validateMapComment(text)) {
+                                            is TextValidationUtil.Result.Error -> {
+                                                userViewModel?.showError(res.message)
+                                                return@CommunityInputForm
                                             }
+                                            is TextValidationUtil.Result.Ok -> {
+                                                val photos = commentPhotoUris.value
+                                                if (photos.isNotEmpty()) {
+                                                    viewModel.submitCommentWithPhotos(context, text, photos)
+                                                } else {
+                                                    viewModel.submitComment(text)
+                                                }
 
-                                            commentDraft.value = ""
-                                            commentPhotoUris.value = emptyList()
+                                                commentDraft.value = ""
+                                                commentPhotoUris.value = emptyList()
+                                            }
                                         }
                                     },
                                     onCancel = {
@@ -921,21 +922,25 @@ fun MapScreen(
                                     onValueChange = { annotationDraft.value = it },
                                     onSubmit = {
                                         val trimmed = annotationDraft.value.trim()
-                                        if (trimmed.length !in 10..1000) {
-                                            userViewModel?.showError(
-                                                "Please enter between 10 and 1000 characters."
-                                            )
-                                            return@CommunityInputForm
+                                        when (val res = TextValidationUtil.validateExpertAnnotation(trimmed)) {
+                                            is TextValidationUtil.Result.Error -> {
+                                                userViewModel?.showError(res.message)
+                                                return@CommunityInputForm
+                                            }
+
+                                            is TextValidationUtil.Result.Ok -> {
+                                                viewModel.addAnnotationWithImage(
+                                                    context = context,
+                                                    note = trimmed,
+                                                    imageUri = annotationImageUri.value
+                                                )
+
+                                                userViewModel?.showInfo("Annotation saved.")
+                                                annotationDraft.value = ""
+                                                annotationImageUri.value = null
+                                                showAnnotationForm.value = false
+                                            }
                                         }
-                                        viewModel.addAnnotationWithImage(
-                                            context = context,
-                                            note = trimmed,
-                                            imageUri = annotationImageUri.value
-                                        )
-                                        userViewModel?.showInfo("Annotation saved.")
-                                        annotationDraft.value = ""
-                                        annotationImageUri.value = null
-                                        showAnnotationForm.value = false
                                     },
                                     onCancel = {
                                         annotationDraft.value = ""
@@ -1035,21 +1040,24 @@ fun MapScreen(
                                             Button(
                                                 onClick = {
                                                     val trimmed = editAnnotationDraft.value.trim()
-                                                    if (trimmed.length !in 10..1000) {
-                                                        userViewModel?.showError(
-                                                            "Please enter between 10 and 1000 characters."
-                                                        )
-                                                        return@Button
+
+                                                    when (val res = TextValidationUtil.validateExpertAnnotation(trimmed)) {
+                                                        is TextValidationUtil.Result.Error -> {
+                                                            userViewModel?.showError(res.message)
+                                                            return@Button
+                                                        }
+                                                        is TextValidationUtil.Result.Ok -> {
+                                                            viewModel.updateAnnotationWithImage(
+                                                                context = context,
+                                                                annotationId = annotation.id,
+                                                                note = trimmed,
+                                                                imageUri = editAnnotationImageUri.value,
+                                                                existingImageUrls = annotation.imageUrls
+                                                            )
+                                                            userViewModel?.showInfo("Annotation updated.")
+                                                            editingAnnotation.value = null
+                                                        }
                                                     }
-                                                    viewModel.updateAnnotationWithImage(
-                                                        context = context,
-                                                        annotationId = annotation.id,
-                                                        note = trimmed,
-                                                        imageUri = editAnnotationImageUri.value,
-                                                        existingImageUrls = annotation.imageUrls
-                                                    )
-                                                    userViewModel?.showInfo("Annotation updated.")
-                                                    editingAnnotation.value = null
                                                 }
                                             ) {
                                                 Text("Save")

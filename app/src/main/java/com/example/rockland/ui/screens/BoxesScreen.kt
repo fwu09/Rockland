@@ -54,12 +54,11 @@ import com.example.rockland.data.repository.CollectionRepository
 import com.example.rockland.ui.theme.Rock1
 import com.example.rockland.ui.theme.TextDark
 import com.google.firebase.auth.FirebaseAuth
-import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
-import com.google.firebase.firestore.SetOptions
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import kotlin.random.Random
+import com.example.rockland.data.repository.AwardsRepository
 
 @Composable
 fun BoxesScreen(userId: String?) {
@@ -653,12 +652,25 @@ private suspend fun openBox(
         )
         userRef.collection("boxOpenHistory").add(historyData).await()
 
-        addRockToUserCollection(
+        val (isNew, isUltraRare) = addRockToUserCollection(
             db = db,
             userId = userId,
             rockName = rockName,
             sourceBoxId = boxId
         )
+
+        // call achievement/mission triggers following obtaining of rock from reward box
+        // mission/achievement trigger: collection of rock
+        // Only count progress if the rock is newly added (unique)
+        if (isNew) {
+            AwardsRepository().applyTrigger(userId, "collect_rock", 1)
+
+        // mission/achievement trigger: ultra rare rock collected
+            if (isUltraRare) {
+                AwardsRepository().applyTrigger(userId, "collect_ultra_rare", 1)
+            }
+
+        }
 
         onResult(BoxOpenResult(boxId = boxId, rarity = pickedRarity, rockName = rockName))
     } catch (e: Exception) {
@@ -673,39 +685,82 @@ private suspend fun addRockToUserCollection(
     userId: String,
     rockName: String,
     sourceBoxId: String
-) {
+): Pair<Boolean, Boolean> {
     val repository = CollectionRepository()
 
+    fun norm(s: String): String =
+        s.trim()
+            .lowercase()
+            .replace("_", " ")
+            .replace(Regex("\\s+"), " ")
+
     try {
-        // Try to resolve the rock's numeric ID and thumbnail from the rock dictionary.
-        val rockSnapshot = db.collection("rock")
-            .whereEqualTo("rockName", rockName)
-            .limit(1)
-            .get()
-            .await()
+        // 1) match with Rock Dictionary using rockID + rockName
+        val canonicalDoc = run {
+            // First try exact match
+            val exact = db.collection("rock")
+                .whereEqualTo("rockName", rockName)
+                .limit(1)
+                .get()
+                .await()
+                .documents
+                .firstOrNull()
 
-        val rockDoc = rockSnapshot.documents.firstOrNull()
-        val resolvedRockId = (rockDoc?.getLong("rockID") ?: 0L)
-            .takeIf { it > 0L }
-            ?.toString()
-            ?: rockName.trim().lowercase().replace(" ", "_")
+            if (exact != null) return@run exact
 
-        val resolvedThumbnail = rockDoc?.getString("rockImageUrl")
+            // Fallback: normalized match
+            val target = norm(rockName)
+            val all = db.collection("rock").get().await().documents
+            all.firstOrNull { doc ->
+                val rn = doc.getString("rockName") ?: return@firstOrNull false
+                norm(rn) == target
+            }
+        }
 
-        repository.addRockToCollection(
+        if (canonicalDoc == null) {
+            // non-numeric rockID Fallback SHOULD NEVER BE STORED
+            // -> dictionary unlock will never match rock.rockID.toString()
+            throw IllegalStateException(
+                "Box reward rock '$rockName' could not be resolved to a Rock Dictionary entry."
+            )
+        }
+
+        val resolvedRockId = canonicalDoc.getLong("rockID")?.toString()
+            ?: throw IllegalStateException("Rock Dictionary entry missing rockID for '$rockName'.")
+
+        val canonicalRockName = canonicalDoc.getString("rockName") ?: rockName
+        val resolvedThumbnail = canonicalDoc.getString("rockImageUrl")
+
+        fun normalizeRarity(s: String?): String =
+            (s ?: "")
+                .trim()
+                .lowercase()
+                .replace("_", " ")
+                .replace(Regex("\\s+"), " ")
+
+        val rarityKey = (canonicalDoc.getString("rockRarity") ?: "")
+            .trim()
+            .lowercase()
+            .replace(" ", "")
+            .replace("_", "")
+            .replace("-", "")
+
+        val isUltraRare = rarityKey == "ultrarare"
+
+
+        // 2) Add to collection
+        val isNew = repository.addRockToCollection(
             userId = userId,
             rockId = resolvedRockId,
             rockSource = "box:$sourceBoxId",
-            rockName = rockName,
+            rockName = canonicalRockName,
             thumbnailUrl = resolvedThumbnail
         )
 
-        db.collection("users").document(userId)
-            .set(
-                mapOf("unlockedRockIds" to FieldValue.arrayUnion(resolvedRockId)),
-                SetOptions.merge()
-            )
-            .await()
+        // Debug
+        // android.util.Log.d("ULTRA_DEBUG", "rock=$canonicalRockName id=$resolvedRockId rarityKey=$rarityKey isNew=$isNew ultra=$isUltraRare")
+        return Pair(isNew, isUltraRare)
+
     } catch (e: Exception) {
         throw IllegalStateException("Failed to add '$rockName' to collection: ${e.message}", e)
     }
