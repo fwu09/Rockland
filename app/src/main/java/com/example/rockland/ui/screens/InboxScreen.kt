@@ -25,6 +25,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material3.Button
@@ -331,6 +332,7 @@ fun InboxScreen(
             notifications = notifications,
             onMarkRead = { id -> reviewViewModel.markNotificationRead(id) },
             onClearAll = { reviewViewModel.clearNotifications() },
+            onDelete = { n -> reviewViewModel.deleteNotification(n.id) },
             onGoToPage = { n ->
                 reviewViewModel.markNotificationRead(n.id)
                 interactiveNotificationScreenVisible.value = false
@@ -1131,6 +1133,7 @@ private fun NotificationsDialog(
     onMarkRead: (String) -> Unit,
     onClearAll: () -> Unit,
     onGoToPage: (InboxNotification) -> Unit,
+    onDelete: (InboxNotification) -> Unit,
     showGoToPage: Boolean,
     onClose: () -> Unit
 ) {
@@ -1258,6 +1261,19 @@ private fun NotificationsDialog(
                                                 onClick = {
                                                     menuExpanded = false
                                                     onGoToPage(notification)
+                                                },
+                                                leadingIcon = {
+                                                    Icon(Icons.Default.OpenInNew, contentDescription = null, tint = TextDark)
+                                                }
+                                            )
+                                            DropdownMenuItem(
+                                                text = { Text("Delete") },
+                                                onClick = {
+                                                    menuExpanded = false
+                                                    onDelete(notification)
+                                                },
+                                                leadingIcon = {
+                                                    Icon(Icons.Default.Delete, contentDescription = null, tint = TextDark)
                                                 }
                                             )
                                         }
@@ -2806,6 +2822,7 @@ private fun InteractiveNotificationScreen(
     onMarkRead: (String) -> Unit,
     onClearAll: () -> Unit,
     onGoToPage: (InboxNotification) -> Unit,
+    onDelete: (InboxNotification) -> Unit,
     // Content review tab (VE/Admin only)
     isVerifiedExpert: Boolean = false,
     isAdmin: Boolean = false,
@@ -2875,7 +2892,8 @@ private fun InteractiveNotificationScreen(
                         notifications = notifications,
                         onMarkRead = onMarkRead,
                         onClearAll = onClearAll,
-                        onGoToPage = onGoToPage
+                        onGoToPage = onGoToPage,
+                        onDelete = onDelete
                     )
                 }
                 currentTab == 0 -> Column(Modifier.weight(1f)) {
@@ -2883,7 +2901,8 @@ private fun InteractiveNotificationScreen(
                         notifications = notifications,
                         onMarkRead = onMarkRead,
                         onClearAll = onClearAll,
-                        onGoToPage = onGoToPage
+                        onGoToPage = onGoToPage,
+                        onDelete = onDelete
                     )
                 }
                 else -> Column(Modifier.weight(1f)) {
@@ -2913,7 +2932,8 @@ private fun NotificationListContent(
     notifications: List<InboxNotification>,
     onMarkRead: (String) -> Unit,
     onClearAll: () -> Unit,
-    onGoToPage: (InboxNotification) -> Unit
+    onGoToPage: (InboxNotification) -> Unit,
+    onDelete: (InboxNotification) -> Unit
 ) {
     Column(
         modifier = Modifier
@@ -3003,6 +3023,19 @@ private fun NotificationListContent(
                                             onClick = {
                                                 menuExpanded = false
                                                 onGoToPage(notification)
+                                            },
+                                            leadingIcon = {
+                                                Icon(Icons.Default.OpenInNew, contentDescription = null, tint = TextDark)
+                                            }
+                                        )
+                                        DropdownMenuItem(
+                                            text = { Text("Delete") },
+                                            onClick = {
+                                                menuExpanded = false
+                                                onDelete(notification)
+                                            },
+                                            leadingIcon = {
+                                                Icon(Icons.Default.Delete, contentDescription = null, tint = TextDark)
                                             }
                                         )
                                     }

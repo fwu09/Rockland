@@ -544,6 +544,14 @@ class ReviewContentViewModel(
         }
     }
 
+    fun deleteNotification(notificationId: String) {
+        val uid = _userId.value ?: return
+        viewModelScope.launch {
+            repository.deleteNotification(uid, notificationId)
+            refresh()
+        }
+    }
+
     private fun UserNotification.toUi(): InboxNotification {
         val date = if (createdAt > 0) {
             SimpleDateFormat("MM/dd/yyyy", Locale.US).format(Date(createdAt))
