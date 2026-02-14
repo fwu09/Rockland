@@ -242,7 +242,7 @@ class CollectionViewModel(
                     }
                 }
                 // 4) successful add + reload
-                _events.tryEmit(CollectionEvent.Success("Added to collection.", rockId = rockId))
+                _events.tryEmit(CollectionEvent.Success("“$rockName” has been registered into your collection!", rockId = rockId))
                 loadUserCollection(userId)
 
             } catch (e: Exception) {

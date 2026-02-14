@@ -541,12 +541,6 @@ fun MapScreen(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.Center
                 ) {
-                    Text(
-                        text = "Search Rock Type",
-                        style = MaterialTheme.typography.titleMedium,
-                        color = TextDark,
-                        fontWeight = FontWeight.SemiBold
-                    )
                 }
             }
         }
